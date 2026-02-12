@@ -91,8 +91,8 @@ int Fat32::FileSys::fat_set_single(uint32_t cluster,
     uint32_t *entry = (uint32_t*)&sector[pos];
     *entry = (*entry & 0xf0000000) | (val & 0x0fffffff); // XXX make symbolic
 
-    if (_bdev->write_blocks(lba, 1, sector))
-        return -1;
+    if (store_sector(lba))
+         return -1;
 
     return 0;
 }
