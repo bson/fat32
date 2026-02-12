@@ -27,22 +27,31 @@
 // Never causes another file to reference freed clusters.
 //
 
-// XXX NOTES
-//   fat flush should also perform device flush, if possible; add to blockdev_t
-//
-//   restructure writes to always write complete sectors
+int Fat32::FileSys::load_sector(uint32_t lba, uint8_t** sector)
+{
+    if (lba == _sec_lba) {
+        *sector = _sector;
+        return 0;
+    }
+
+    if (_bdev->read_blocks(lba, 1, _sector))
+        return -1;
+
+    *sector = _sector;
+    _sec_lba = lba;
+    return 0;
+}
 
 
-// XXX LOL!  This is non-reentrant.  At least move this into
-// fat32_fs_t, but better is to let blockdev own it as a simple LRU
-// sector cache.  Then make read_blocks() smart enough to allocate and
-// return it.  It could be returned const*, then a modify() call could
-// be used to drop the const, allowing it to be modified.
-// modify_done() or such can then flush it back to disk and updates
-// the cache, including existing const* blocks in flight. When converting
-// to C++ add an RAII scope pattern for simplified usage.
+int Fat32::FileSys::store_sector(uint32_t lba)
+{
+    if (_bdev->write_blocks(lba, 1, _sector))
+        return -1;
 
-static uint8_t sector[Fat32::SECTOR_SIZE];
+    _sec_lba = lba;
+    return 0;
+}
+
 
 uint32_t Fat32::FileSys::cluster_to_lba(uint32_t cluster)
 {
@@ -56,7 +65,8 @@ int Fat32::FileSys::fat_get(uint32_t cluster, uint32_t *val)
     uint32_t lba = _fat_start_lba + (off / SECTOR_SIZE);
     uint32_t pos = off % SECTOR_SIZE;
 
-    if (_bdev->read_blocks(lba, 1, sector))
+    uint8_t* sector;
+    if (load_sector(lba, &sector))
         return -1;
 
     *val = (*(uint32_t*)&sector[pos]) & 0x0fffffff;  // XXX symbol
@@ -74,7 +84,8 @@ int Fat32::FileSys::fat_set_single(uint32_t cluster,
     const uint32_t lba = base + (off / SECTOR_SIZE);
     const uint32_t pos = off % SECTOR_SIZE;
 
-    if (_bdev->read_blocks(lba, 1, sector))
+    uint8_t* sector;
+    if (load_sector(lba, &sector))
         return -1;
 
     uint32_t *entry = (uint32_t*)&sector[pos];
@@ -134,7 +145,8 @@ int Fat32::mount(BlockDev* bdev, Fat32::FileSys *fs)
 {
     fs->_bdev = bdev;
 
-    if (bdev->read_blocks(0, 1, sector))
+    uint8_t* sector;
+    if (fs->load_sector(0, &sector))
         return -1;
 
     const bpb_t *bpb = (bpb_t*)sector;
@@ -202,7 +214,8 @@ int Fat32::FileSys::dir_find(uint32_t cluster,
         const uint32_t lba = cluster_to_lba(cluster);
 
         for (uint32_t s = 0; s < _sectors_per_cluster; s++) {
-            if (_bdev->read_blocks(lba + s, 1, sector))
+            uint8_t* sector;
+            if (load_sector(lba + s, &sector))
                 return -1;
 
             dirent_t *ent = (dirent_t*)sector;
@@ -293,7 +306,8 @@ int Fat32::FileSys::dir_find_free_slot(uint32_t dir_cluster,
         const uint32_t lba = cluster_to_lba(dir_cluster);
 
         for (uint32_t s = 0; s < _sectors_per_cluster; s++) {
-            if (_bdev->read_blocks(lba + s, 1, sector))
+            uint8_t* sector;
+            if (load_sector(lba + s, &sector))
                 return -1;
 
             dirent_t *ent = (dirent_t*)sector;
@@ -343,7 +357,8 @@ int Fat32::File::read(void *buffer, size_t len)
         const uint32_t lba = _fs->cluster_to_lba(_current_cluster);
 
         for (uint32_t s = 0; s < _fs->_sectors_per_cluster && remaining > 0; s++) {
-            if (_fs->_bdev->read_blocks(lba + s, 1, sector))
+            uint8_t* sector;
+            if (_fs->load_sector(lba + s, &sector))
                 return -1;
 
             const size_t copy = min<size_t>(remaining, SECTOR_SIZE);
@@ -373,11 +388,11 @@ int Fat32::File::write(const void *buffer, size_t len)
         const uint32_t lba = _fs->cluster_to_lba(_current_cluster);
 
         for (uint32_t s = 0; s < _fs->_sectors_per_cluster && remaining; s++) {
-            memset(sector, 0, SECTOR_SIZE);
+            memset(_fs->_sector, 0, SECTOR_SIZE);
 
             const size_t copy = min<size_t>(remaining, SECTOR_SIZE);
-            memcpy(sector, in, copy);
-            if (_fs->_bdev->write_blocks(lba + s, 1, sector))
+            memcpy(_fs->_sector, in, copy);
+            if (_fs->store_sector(lba + s))
                 return -1;
 
             in += copy;
@@ -403,14 +418,15 @@ int Fat32::File::write(const void *buffer, size_t len)
     }
 
     /* update directory size AFTER data write */
-    if (_fs->_bdev->read_blocks(_dir_lba, 1, sector))
+    uint8_t* sector;
+    if (_fs->load_sector(_dir_lba, &sector))
         return -1;
 
     dirent_t *ent = (dirent_t*)&sector[_dir_offset];
 
     ent->file_size = _file_size;
 
-    if (_fs->_bdev->write_blocks(_dir_lba, 1, sector))
+    if (_fs->store_sector(_dir_lba))
         return -1;
 
     return len;
@@ -425,12 +441,13 @@ int Fat32::FileSys::unlink(const char *path)
         return -1;
 
     /* 1. mark directory entry deleted */
-    if (_bdev->read_blocks(file._dir_lba, 1, sector))
+    uint8_t* sector;
+    if (load_sector(file._dir_lba, &sector))
         return -1;
 
     sector[file._dir_offset] = 0xe5;
 
-    if (_bdev->write_blocks(file._dir_lba, 1, sector))
+    if (store_sector(file._dir_lba))
         return -1;
 
     /* 2. free cluster chain */
@@ -468,7 +485,8 @@ int Fat32::FileSys::create(const char *path, Fat32::File *file)
     if (fat_allocate(&cluster))
         return -1;
 
-    if (_bdev->read_blocks(lba, 1, sector))
+    uint8_t* sector;
+    if (load_sector(lba, &sector))
         return -1;
 
     dirent_t *ent = (dirent_t*)&sector[off];
@@ -487,7 +505,7 @@ int Fat32::FileSys::create(const char *path, Fat32::File *file)
        cluster already marked allocated
        now write directory entry */
 
-    if (_bdev->write_blocks(lba, 1, sector))
+    if (store_sector(lba))
         return -1;
 
     return open(path, file);
@@ -506,7 +524,9 @@ int Fat32::FileSys::stat(const char *path, Fat32::Stat *st)
     st->_attributes = DirEntAttr::UNUSED;
 
     /* reload directory entry */
-    if (_bdev->read_blocks(f._dir_lba, 1, sector))
+    uint8_t* sector;
+    _sec_lba = ~uint32_t(0);
+    if (load_sector(f._dir_lba, &sector))
         return -1;
     
     dirent_t *ent = (dirent_t*)(sector + f._dir_offset);
@@ -526,7 +546,8 @@ int Fat32::FileSys::dir_is_empty(uint32_t cluster)
         uint32_t lba = cluster_to_lba(cluster);
 
         for (uint32_t s = 0; s < _sectors_per_cluster; s++) {
-            if (_bdev->read_blocks(lba + s, 1, sector))
+            uint8_t* sector;
+            if (load_sector(lba + s, &sector))
                 return -1;
 
             dirent_t *ent = (dirent_t*)sector;
@@ -583,9 +604,9 @@ int Fat32::FileSys::mkdir(const char *path)
     /* Initialize new directory cluster */
     uint32_t lba = cluster_to_lba(new_cluster);
 
-    memset(sector, 0, SECTOR_SIZE);
+    memset(_sector, 0, SECTOR_SIZE);
 
-    dirent_t *ent = (dirent_t*)sector;
+    dirent_t *ent = (dirent_t*)_sector;
 
     /* "." entry */
     memset(&ent[0], 0, sizeof(*ent));
@@ -604,11 +625,12 @@ int Fat32::FileSys::mkdir(const char *path)
     ent[1].first_cluster_lo = parent_cluster & 0xffff;
     ent[1].first_cluster_hi = parent_cluster >> 16;
 
-    if (_bdev->write_blocks(lba, 1, sector))
+    if (store_sector(lba))
         return -1;
 
     /* Now write parent directory entry */
-    if (_bdev->read_blocks(slot_lba, 1, sector))
+    uint8_t* sector;
+    if (load_sector(slot_lba, &sector))
         return -1;
 
     dirent_t *slot = (dirent_t*)&sector[slot_off];
@@ -623,7 +645,7 @@ int Fat32::FileSys::mkdir(const char *path)
     slot->first_cluster_hi = new_cluster >> 16;
     slot->file_size = 0;
 
-    if (_bdev->write_blocks(slot_lba, 1, sector))
+    if (store_sector(slot_lba))
         return -1;
 
     return 0;
@@ -646,14 +668,15 @@ int Fat32::FileSys::rmdir(const char *path)
         return -1;
 
     /* Mark directory entry deleted */
-    if (_bdev->read_blocks(f._dir_lba, 1, sector))
+    uint8_t* sector;
+    if (load_sector(f._dir_lba, &sector))
         return -1;
 
     dirent_t *ent = (dirent_t*)&sector[f._dir_offset];
 
     ent->name[0] = 0xe5;
 
-    if (_bdev->write_blocks(f._dir_lba, 1, sector))
+    if (store_sector(f._dir_lba))
         return -1;
 
     return 0;

@@ -25,9 +25,19 @@
 class PosixBlockDev : public BlockDev {
 public:
     int fd;
+    int numloads;
+    int numstores;
+
+    PosixBlockDev()
+        : fd(-1), numloads(0), numstores(0)
+    { }
+
 
     int read_blocks(uint32_t lba, uint32_t count, void *buffer)
     {
+        //printf("Load LBA: %d\n", lba);
+        numloads++;
+
         const off_t offset = (off_t)lba * SECTOR_SIZE;
 
         if (lseek(fd, offset, SEEK_SET) < 0)
@@ -44,6 +54,9 @@ public:
 
     int write_blocks(uint32_t lba, uint32_t count, const void *buffer)
     {
+        //printf("Write LBA: %d\n", lba);
+        numstores++;
+
         const off_t offset = (off_t)lba * SECTOR_SIZE;
 
         if (lseek(fd, offset, SEEK_SET) < 0)
@@ -226,5 +239,6 @@ int main(void)
     close(bdev.fd);
 
     printf("All tests completed.\n");
+    printf("%d loads, %d stores\n", bdev.numloads, bdev.numstores);
     return 0;
 }
