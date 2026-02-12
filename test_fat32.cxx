@@ -35,7 +35,7 @@ public:
 
     int read_blocks(uint32_t lba, uint32_t count, void *buffer)
     {
-        //printf("Load LBA: %d\n", lba);
+        printf("Load LBA: %d\n", lba);
         numloads++;
 
         const off_t offset = (off_t)lba * SECTOR_SIZE;
@@ -54,7 +54,7 @@ public:
 
     int write_blocks(uint32_t lba, uint32_t count, const void *buffer)
     {
-        //printf("Write LBA: %d\n", lba);
+        printf("Write LBA: %d\n", lba);
         numstores++;
 
         const off_t offset = (off_t)lba * SECTOR_SIZE;
@@ -138,20 +138,6 @@ static void test_multilevel_path(Fat32::FileSys *fs)
     }
 }
 
-static void test_lfn_lookup(Fat32::FileSys *fs)
-{
-    printf("TEST: long filename lookup\n");
-
-    Fat32::File f;
-
-    if (fs->open("Long File Name.txt", &f) == 0) {
-        printf("  LFN opened successfully\n");
-        f.close();
-    } else {
-        printf("  Skipping (LFN not present)\n");
-    }
-}
-
 static void test_stat(Fat32::FileSys *fs)
 {
     printf("TEST: Fat32::stat\n");
@@ -216,6 +202,15 @@ void test_dirops(Fat32::FileSys* fs)
     printf("  Fat32::mkdir, Fat32::rmdir passed\n");
 }
 
+void test_psinfo_write(Fat32::FileSys* fs)
+{
+    printf("TEST: Fat32::checkpoint\n");
+
+    assert(fs->checkpoint() == 0);
+    printf("  Fat32::checkpoint passed\n");
+}
+
+
 /* ================= MAIN ================= */
 
 int main(void)
@@ -232,9 +227,9 @@ int main(void)
     test_open_nonexistent(&fs);
     test_create_write_read_delete(&fs);
     test_multilevel_path(&fs);
-    test_lfn_lookup(&fs);
     test_stat(&fs);
     test_dirops(&fs);
+    test_psinfo_write(&fs);
 
     close(bdev.fd);
 

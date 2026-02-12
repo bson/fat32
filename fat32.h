@@ -29,16 +29,11 @@ public:
     class File;
 
     class FileSys {
+        BlockDev *_bdev;
+
         // Single sector buffer.
         uint32_t _sec_lba;          // Sector currently buffered
         uint8_t  _sector[SECTOR_SIZE];
-
-    public:
-        FileSys()
-            : _sec_lba(~uint32_t(0))
-        { }
-
-        BlockDev *_bdev;
 
         uint32_t _fat_start_lba;
         uint32_t _data_start_lba;
@@ -50,6 +45,19 @@ public:
         uint32_t _fat_count;
         uint32_t _total_clusters;
 
+        uint32_t _fsinfo_lba;
+        uint32_t _free_cluster_count;
+        uint32_t _next_free_cluster;
+        bool     _fsinfo_valid;
+        bool     _fsinfo_dirty;
+
+    public:
+        FileSys()
+            : _sec_lba(~uint32_t(0))
+        { }
+
+        // Checkpoint FS state
+        int checkpoint();
 
         int stat(const char *path, Stat *st);
 
@@ -63,18 +71,21 @@ public:
         int mkdir(const char *path);
         int rmdir(const char *path);
 
+    protected:
         friend class Fat32;
         friend class File;
-    protected:
+
         int load_sector(uint32_t lba, uint8_t** sector); // Load sector, if needed
         int store_sector(uint32_t lba); // Write sector buffer
 
+    private:
         uint32_t cluster_to_lba(uint32_t cluster);
         int fat_get(uint32_t cluster, uint32_t *val);
         int fat_set_single(uint32_t cluster, uint32_t val, uint32_t fat_index);
         int fat_set(uint32_t cluster, uint32_t val);
         int fat_allocate(uint32_t *out);
         int fat_free_chain(uint32_t start);
+        int fat_recompute_free_clusters(uint32_t* free_count, uint32_t* next_free);
         int dir_find(uint32_t cluster, const char *name, File *file);
         int dir_find_free_slot(uint32_t dir_cluster, uint32_t *out_lba,
                                uint32_t *out_offset);
@@ -151,6 +162,24 @@ private:
         uint16_t backup_boot_sector;
         uint8_t  reserved[12];
     } bpb_t;
+
+
+    typedef struct {
+        enum : uint32_t {
+            SIG1 = 0x41615252,
+            SIG2 = 0x61417272,
+            SIG3 = 0xaa550000
+        };
+
+        uint32_t lead_sig;        /* 0x41615252 SIG1 */
+        uint8_t  reserved1[480];
+        uint32_t struct_sig;      /* 0x61417272 SIG2 */
+        uint32_t free_count;
+        uint32_t next_free;
+        uint8_t  reserved2[12];
+        uint32_t trail_sig;       /* 0xAA550000 SIG3 */
+    } fsinfo_t;
+
 
     typedef struct {
         uint8_t  name[11];

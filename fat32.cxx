@@ -1,6 +1,7 @@
-#include "fat32.h"
 #include <string.h>
 #include <ctype.h>
+#include <stdio.h>
+#include "fat32.h"
 
 // 
 // *** Crash Behavior Analysis ***
@@ -109,33 +110,90 @@ int Fat32::FileSys::fat_set(uint32_t cluster, uint32_t val)
 
 int Fat32::FileSys::fat_allocate(uint32_t *out)
 {
-    for (uint32_t c = 2; c < _total_clusters; c++) {
-        uint32_t v;
-        if (fat_get(c, &v))
-            return -1;
-        if (v == 0) {
-            if (fat_set(c, EOC))
+    uint32_t start = _fsinfo_valid ? _next_free_cluster : 2;
+
+    for (uint32_t pass = 0; pass < 2; pass++) {
+
+        for (uint32_t c = start; c < _total_clusters; c++) {
+            uint32_t val;
+
+            if (fat_get(c, &val))
                 return -1;
-            *out = c;
-            return 0;
+
+            if (val == 0) {
+                if (fat_set(c, EOC))
+                    return -1;
+
+                *out = c;
+
+                if (_fsinfo_valid) {
+                    if (_free_cluster_count != 0xffffffff)
+                        --_free_cluster_count;
+
+                    _next_free_cluster = c + 1;
+                    _fsinfo_dirty = true;
+                }
+
+                return 0;
+            }
         }
+
+        /* wrap once */
+        start = 2;
     }
-    return -1;
+
+    return -1; /* full */
 }
 
 
 int Fat32::FileSys::fat_free_chain(uint32_t start)
 {
-    uint32_t c = start;
+    uint32_t cluster = start;
 
-    while (c < EOC) {
+    while (cluster < EOC) {
         uint32_t next;
-        if (fat_get(c, &next))
+        if (fat_get(cluster, &next))
             return -1;
-        if (fat_set(c, 0))
+        if (fat_set(cluster, 0))
             return -1;
-        c = next;
+        cluster = next;
     }
+
+    if (_fsinfo_valid) {
+        if (_free_cluster_count != 0xFFFFFFFF)
+            ++_free_cluster_count;
+
+        if (cluster < _next_free_cluster)
+            _next_free_cluster = cluster;
+
+        _fsinfo_dirty = true;
+    }
+
+    return 0;
+}
+
+
+int Fat32::FileSys::fat_recompute_free_clusters(uint32_t* free_count, uint32_t* next_free) 
+{
+    uint32_t free = 0;
+    uint32_t first = 0;
+
+    for (uint32_t c = 2; c < _total_clusters; c++) {
+        uint32_t val;
+
+        if (fat_get(c, &val))
+            return -1;
+
+        if (val == 0) {
+            ++free;
+            if (first == 0)
+                first = c;
+        }
+    }
+
+    *free_count = free;
+    *next_free = first ? first : 2;
+
     return 0;
 }
 
@@ -170,6 +228,71 @@ int Fat32::mount(BlockDev* bdev, Fat32::FileSys *fs)
 
     fs->_total_clusters = data_sectors / fs->_sectors_per_cluster;
 
+    // Load PSINFO
+    fs->_fsinfo_lba = fs->_fat_start_lba - 1; // From BPB
+    fs->_fsinfo_valid = false;
+    fs->_fsinfo_dirty = false;
+
+    fsinfo_t *fsi;
+    if (!fs->load_sector(fs->_fsinfo_lba, (uint8_t**)&fsi)) {
+
+        if (fsi->lead_sig  == fsinfo_t::SIG1 &&
+            fsi->struct_sig == fsinfo_t::SIG2 &&
+            fsi->trail_sig == fsinfo_t::SIG3) {
+
+            fs->_free_cluster_count = fsi->free_count;
+            fs->_next_free_cluster =
+                (fsi->next_free >= 2 &&
+                 fsi->next_free < fs->_total_clusters)
+                ? fsi->next_free
+                : 2;
+
+            fs->_fsinfo_valid = true;
+        }
+    }
+
+    // If invalid or missing: rebuild
+    if (!fs->_fsinfo_valid) {
+        uint32_t free_count;
+        uint32_t next_free;
+
+        if (fs->fat_recompute_free_clusters(&free_count, &next_free))
+            return -1;
+
+        fsi->lead_sig   = fsinfo_t::SIG1;
+        fsi->struct_sig = fsinfo_t::SIG2;
+        fsi->free_count = free_count;
+        fsi->next_free  = next_free;
+        fsi->trail_sig  = fsinfo_t::SIG3;
+
+        if (fs->store_sector(fs->_fsinfo_lba))
+            return -1;
+
+        fs->_free_cluster_count = free_count;
+        fs->_next_free_cluster  = next_free;
+        fs->_fsinfo_valid       = true;
+    }
+
+    return 0;
+}
+
+
+int Fat32::FileSys::checkpoint()
+{
+    if (!_fsinfo_valid || !_fsinfo_dirty)
+        return 0;
+
+    fsinfo_t *fsi;
+    if (load_sector(_fsinfo_lba, (uint8_t**)&fsi))
+        return -1;
+
+    fsi->free_count = _free_cluster_count;
+    fsi->next_free  = _next_free_cluster;
+
+    if (store_sector(_fsinfo_lba))
+        return -1;
+
+    _fsinfo_dirty = false;
     return 0;
 }
 
