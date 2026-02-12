@@ -322,6 +322,7 @@ int Fat32::FileSys::open(const char *path, Fat32::File *file)
 
     char tmp[256];
     strncpy(tmp, path, sizeof tmp);
+    tmp[255] = 0;
     if (dir_find_parent(tmp, true, &dir_cluster))
         return -1;
 
@@ -445,37 +446,17 @@ int Fat32::File::close()
 
 int Fat32::FileSys::create(const char *path, Fat32::File *file)
 {
-    File tmp;
+    File f;
 
     /* Fail if exists */
-    if (open(path, &tmp) == 0)
+    if (open(path, &f) == 0)
         return -1;
 
-    /* Split path */
-    char parent[256];
-    char name[256];
-
-    memset(parent, 0, sizeof parent);
-    strcpy(parent, path);
-
-    char *const slash = strrchr(parent, '/');
-    if (slash) {
-        strcpy(name, slash + 1);
-        *slash = 0;
-    } else {
-        strcpy(name, parent);
-        parent[0] = 0;
-    }
-
-    const uint32_t dir_cluster =
-        parent[0] ?
-            ({ File d;
-                if (open(parent, &d))
-                    return -1;
-                d._first_cluster; })
-        : _root_cluster;
-
-    if (dir_cluster == (uint32_t)-1)
+    uint32_t dir_cluster;
+    char tmp[256];
+    strncpy(tmp, path, sizeof tmp);
+    tmp[255] = 0;
+    if (dir_find_parent(tmp, true, &dir_cluster))
         return -1;
 
     uint32_t lba;
@@ -494,7 +475,7 @@ int Fat32::FileSys::create(const char *path, Fat32::File *file)
 
     memset(ent, 0, sizeof(*ent));
 
-    if (make_sfn(name, ent->name))
+    if (make_sfn(basename(path), ent->name))
         return -1;
 
     ent->attr = DirEntAttr::UNUSED;
@@ -577,35 +558,18 @@ int Fat32::FileSys::dir_is_empty(uint32_t cluster)
 
 int Fat32::FileSys::mkdir(const char *path)
 {
-    File tmp;
+    File f;
 
     /* Fail if exists */
-    if (open(path, &tmp) == 0)
+    if (open(path, &f) == 0)
         return -1;
 
-    char parent[256];
-    char name[256];
-
-    memset(parent, 0, sizeof parent);
-    strcpy(parent, path);
-
-    char *const slash = strrchr(parent, '/');
-    if (slash) {
-        strcpy(name, slash + 1);
-        *slash = 0;
-    } else {
-        strcpy(name, parent);
-        parent[0] = 0;
-    }
-
-    const uint32_t parent_cluster =
-        parent[0] ?
-        ({ File d;
-           if (open(parent, &d))
-               return -1;
-           d._first_cluster; })
-        :
-        _root_cluster;
+    uint32_t parent_cluster;
+    char tmp[256];
+    strncpy(tmp, path, sizeof tmp);
+    tmp[255] = 0;
+    if (dir_find_parent(tmp, true, &parent_cluster))
+        return -1;
 
     uint32_t slot_lba;
     uint32_t slot_off;
@@ -651,7 +615,7 @@ int Fat32::FileSys::mkdir(const char *path)
 
     memset(slot, 0, sizeof(*slot));
 
-    if (make_sfn(name, slot->name))
+    if (make_sfn(basename(path), slot->name))
         return -1;
 
     slot->attr = DirEntAttr::DIRECTORY;
@@ -672,9 +636,6 @@ int Fat32::FileSys::rmdir(const char *path)
 
     if (open(path, &f))
         return -1;
-
-    if (!(f._file_size == 0))
-        ; /* directories should have size 0 */
 
     /* Check empty */
     if (dir_is_empty(f._first_cluster) != 1)
