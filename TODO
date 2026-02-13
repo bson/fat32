@@ -1,0 +1,28 @@
+Implement a gpt LBA-to-PBA mapper, as a pass-through BlockDev.
+
+Currently a variety of functions that break down paths need to make a
+local copy of it, so they can replace '/' with 0.  Fix this.  One
+possibility is to create a set of basic C-like string functions that
+consider either '/' or 0 to be end of a string.  Then paths can be
+broken down as they are, without modification.
+
+Refactor test_fat32 a bit so it can be built for firmware (with a
+suitable block device, like an SD or CF card and driver) and run on a
+target platform.
+
+Add locking, just a simple variety that only allows one API function
+to be in flight at any one time.  Create a skeleton that does nothing
+which can be used for non-MT platforms that don't need it, and as a
+template for those that do.
+
+Implement pthread-based locking for dev purposes.  Extend test_fat32
+to aggressively test it.
+
+Investigate cluster loading; when loading a sector ask the cache to
+fill the entire cluster.  Add a fill() method to BlockDev for this.
+
+Add a no-cache hint to read/write, or an alternate version.  For
+example, when flushing large amounts of data that has been collected
+and then never using it again this would otherwise cause the entire
+sector cache to be evicted.  The flag would signify that the caller
+isn't expected to touch this data again anytime soom, if ever.

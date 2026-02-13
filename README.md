@@ -19,3 +19,5 @@ It only supports 8.3 short filenames (SFN).
 There is currently no locking and it's not MT-safe.
 
 Each volume should only be mounted in a single file system.
+
+File paths use the Linux/Darwin-style '/'.
