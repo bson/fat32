@@ -40,3 +40,10 @@ also be possible to refuse to write to the BPB or FSINFO without using
 a specific function to do so, to prevent accidental corruption.  Either
 way, a write to LBA 0 or such should cause an error code that tells
 the caller there is corruption and that fsck should be run.
+
+Verify that the partition is between 32MB and 32TB.  Especially the
+lower limit is a hard stop for FAT32.
+
+Update all FAT copies.
+
+Extend Stat to include attributes and timestamps.
