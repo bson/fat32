@@ -30,3 +30,13 @@ isn't expected to touch this data again anytime soom, if ever.
 Add a consistency check on startup and refuse to mount if fsck is
 needed.  Add fsck?  It'll be big and slow, but if not wanted could
 simply not be used.
+
+Verify that the BPB sectors_per_fat is 0, and if so refuse to mount
+it.  (This is standard practice.)
+
+When adding GPT partition mapping (LBA to PBA) verify that the LBA is
+inside the bounds and not in the hidden/reserved prologue.  It might
+also be possible to refuse to write to the BPB or FSINFO without using
+a specific function to do so, to prevent accidental corruption.  Either
+way, a write to LBA 0 or such should cause an error code that tells
+the caller there is corruption and that fsck should be run.

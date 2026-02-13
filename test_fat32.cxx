@@ -15,7 +15,7 @@
 
 /*
  * dd if=/dev/zero of=test.img bs=1M count=16
- * mkfs.vfat -F 32 test.img
+ * mkfs.vfat -F 32 -n "TEST IMAGE" test.img
  */
 
 #define TEST_IMAGE "test.img"
