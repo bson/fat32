@@ -35,7 +35,7 @@ public:
 
     int read_blocks(uint32_t lba, uint32_t count, void *buffer)
     {
-        printf("Load LBA: %d\n", lba);
+        //printf("Load LBA: %d\n", lba);
         numloads++;
 
         const off_t offset = (off_t)lba * SECTOR_SIZE;
@@ -54,7 +54,7 @@ public:
 
     int write_blocks(uint32_t lba, uint32_t count, const void *buffer)
     {
-        printf("Write LBA: %d\n", lba);
+        //printf("Write LBA: %d\n", lba);
         numstores++;
 
         const off_t offset = (off_t)lba * SECTOR_SIZE;
@@ -81,16 +81,17 @@ static void die(const char *msg)
     exit(EXIT_FAILURE);
 }
 
-static void test_mount(BlockDev* bdev, Fat32::FileSys *fs)
+static void test_mount(Fat32::FileSys *fs)
 {
     printf("TEST: mount\n");
-    assert(Fat32::mount(bdev, fs) == 0);
+    assert(fs->mount() == 0);
+    printf("  Volume Label: \"%s\"\n", fs->volume_label());
 }
 
 static void test_open_nonexistent(Fat32::FileSys *fs)
 {
     printf("TEST: open nonexistent file\n");
-    Fat32::File f;
+    Fat32::FileSys::File f;
     assert(fs->open("nope.txt", &f) != 0);
 }
 
@@ -102,7 +103,7 @@ static void test_create_write_read_delete(Fat32::FileSys *fs)
     const char *data = "Hello FAT32 test suite!";
     char buffer[128];
 
-    Fat32::File f;
+    Fat32::FileSys::File f;
 
     assert(fs->create(filename, &f) == 0);
 
@@ -125,7 +126,7 @@ static void test_multilevel_path(Fat32::FileSys *fs)
 {
     printf("TEST: multi-level path\n");
 
-    Fat32::File f;
+    Fat32::FileSys::File f;
 
     assert(fs->mkdir("DIR1") == 0);
     assert(fs->create("DIR1/FILE1.TXT", &f) == 0);
@@ -144,7 +145,7 @@ static void test_stat(Fat32::FileSys *fs)
 
     const char *filename = "statfile.txt";
     const char *data = "Stat test data";
-    Fat32::File f;
+    Fat32::FileSys::File f;
     Fat32::Stat st;
 
     /* Ensure file does not exist */
@@ -194,7 +195,7 @@ void test_dirops(Fat32::FileSys* fs)
 
 
     fs->mkdir("DIR11");
-    Fat32::File f;
+    Fat32::FileSys::File f;
     fs->create("DIR11/FILE.TXT", &f);
     f.close();
     assert(fs->rmdir("DIR11") != 0);
@@ -221,9 +222,9 @@ int main(void)
     if (bdev.fd < 0)
         die("open test image");
 
-    Fat32::FileSys fs;
+    Fat32::FileSys fs(bdev);
 
-    test_mount(&bdev, &fs);
+    test_mount(&fs);
     test_open_nonexistent(&fs);
     test_create_write_read_delete(&fs);
     test_multilevel_path(&fs);

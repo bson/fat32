@@ -26,10 +26,9 @@ public:
 
 
     class Stat;
-    class File;
 
     class FileSys {
-        BlockDev *_bdev;
+        BlockDev& _bdev;
 
         // Single sector buffer.
         uint32_t _sec_lba;          // Sector currently buffered
@@ -48,15 +47,22 @@ public:
         uint32_t _fsinfo_lba;
         uint32_t _free_cluster_count;
         uint32_t _next_free_cluster;
-        bool     _fsinfo_valid;
-        bool     _fsinfo_dirty;
+        bool     _fsinfo_valid; // fsinfo was found or was initialized
+        bool     _fsinfo_dirty; // fsinfo needs to be rewritten
+
+        char     _volume_label[12];
+
 
     public:
-        FileSys()
-            : _sec_lba(~uint32_t(0))
+        class File;
+
+        FileSys(BlockDev& bdev)
+            : _bdev(bdev), _sec_lba(~uint32_t(0))
         { }
 
-        // Checkpoint FS state
+        int mount();
+
+        // Checkpoint FS state (PSINFO) if dirty
         int checkpoint();
 
         int stat(const char *path, Stat *st);
@@ -70,6 +76,31 @@ public:
 
         int mkdir(const char *path);
         int rmdir(const char *path);
+
+        const char* volume_label() const { return _volume_label; }
+
+
+        class File {
+        public:
+            FileSys *_fs;
+
+            uint32_t _first_cluster;
+            uint32_t _current_cluster;
+
+            uint32_t _file_size;
+            uint32_t _file_pos;
+
+            uint32_t _dir_lba;
+            uint32_t _dir_offset;
+
+
+            int read(void *buffer, size_t len);
+
+            int write(const void *buffer, size_t len);
+
+            int close();
+        };
+
 
     protected:
         friend class Fat32;
@@ -86,34 +117,14 @@ public:
         int fat_allocate(uint32_t *out);
         int fat_free_chain(uint32_t start);
         int fat_recompute_free_clusters(uint32_t* free_count, uint32_t* next_free);
+
+        int dir_load_volume_label_from_root();
         int dir_find(uint32_t cluster, const char *name, File *file);
         int dir_find_free_slot(uint32_t dir_cluster, uint32_t *out_lba,
                                uint32_t *out_offset);
         int dir_find_parent(char* path_buffer, bool tail, uint32_t* cluster);
         int dir_is_empty(uint32_t cluster);
 
-    };
-
-
-    class File {
-    public:
-        FileSys *_fs;
-
-        uint32_t _first_cluster;
-        uint32_t _current_cluster;
-
-        uint32_t _file_size;
-        uint32_t _file_pos;
-
-        uint32_t _dir_lba;
-        uint32_t _dir_offset;
-
-
-        int read(void *buffer, size_t len);
-
-        int write(const void *buffer, size_t len);
-
-        int close();
     };
 
 
@@ -124,8 +135,6 @@ public:
         DirEntAttr _attributes;
     };
 
-
-    static int mount(BlockDev *bdev, FileSys *fs);
 
     // Misc utility functions
 

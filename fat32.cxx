@@ -35,7 +35,7 @@ int Fat32::FileSys::load_sector(uint32_t lba, uint8_t** sector)
         return 0;
     }
 
-    if (_bdev->read_blocks(lba, 1, _sector))
+    if (_bdev.read_blocks(lba, 1, _sector))
         return -1;
 
     *sector = _sector;
@@ -46,7 +46,7 @@ int Fat32::FileSys::load_sector(uint32_t lba, uint8_t** sector)
 
 int Fat32::FileSys::store_sector(uint32_t lba)
 {
-    if (_bdev->write_blocks(lba, 1, _sector))
+    if (_bdev.write_blocks(lba, 1, _sector))
         return -1;
 
     _sec_lba = lba;
@@ -197,26 +197,59 @@ int Fat32::FileSys::fat_recompute_free_clusters(uint32_t* free_count, uint32_t* 
     return 0;
 }
 
-
-// * static
-int Fat32::mount(BlockDev* bdev, Fat32::FileSys *fs)
+int Fat32::FileSys::dir_load_volume_label_from_root()
 {
-    fs->_bdev = bdev;
+    uint32_t cluster = _root_cluster;
 
-    uint8_t* sector;
-    if (fs->load_sector(0, &sector))
+    while (cluster < EOC) {
+        const uint32_t lba = cluster_to_lba(cluster);
+
+        for (uint32_t s = 0; s < _sectors_per_cluster; s++) {
+            dirent_t *ent;
+            if (load_sector(lba + s, (uint8_t**)&ent))
+                return -1;
+
+            for (int i = 0; i < SECTOR_SIZE / sizeof(*ent); i++) {
+                if (ent[i].name[0] == 0x00)
+                    return -1;
+
+                if (ent[i].name[0] == 0xe5)
+                    continue;
+
+                if (ent[i].attr == DirEntAttr::VOLUME_ID) {
+                    memcpy(_volume_label, ent[i].name, 11);
+                    _volume_label[11] = 0;
+
+                    for (int end = 10; end >= 0 && _volume_label[end] == ' '; --end)
+                        _volume_label[end] = 0;
+
+                    return 0;
+                }
+            }
+        }
+
+        if (fat_get(cluster, &cluster))
+            return -1;
+    }
+
+    return -1;
+}
+
+
+int Fat32::FileSys::mount()
+{
+    bpb_t *bpb;
+    if (load_sector(0, (uint8_t**)&bpb))
         return -1;
 
-    const bpb_t *bpb = (bpb_t*)sector;
+    _reserved_sectors   = bpb->reserved_sector_count;
+    _sectors_per_cluster= bpb->sectors_per_cluster;
+    _sectors_per_fat    = bpb->fat_size_32;
+    _fat_count          = bpb->num_fats;
+    _root_cluster       = bpb->root_cluster;
 
-    fs->_reserved_sectors   = bpb->reserved_sector_count;
-    fs->_sectors_per_cluster= bpb->sectors_per_cluster;
-    fs->_sectors_per_fat    = bpb->fat_size_32;
-    fs->_fat_count          = bpb->num_fats;
-    fs->_root_cluster       = bpb->root_cluster;
-
-    fs->_fat_start_lba  = fs->_reserved_sectors;
-    fs->_data_start_lba = fs->_reserved_sectors + fs->_fat_count * fs->_sectors_per_fat;
+    _fat_start_lba  = _reserved_sectors;
+    _data_start_lba = _reserved_sectors + _fat_count * _sectors_per_fat;
 
     const uint32_t total_sectors =
         bpb->total_sectors_32 ?
@@ -224,39 +257,39 @@ int Fat32::mount(BlockDev* bdev, Fat32::FileSys *fs)
         bpb->total_sectors_16;
 
     const uint32_t data_sectors = total_sectors
-        - (fs->_reserved_sectors + fs->_fat_count * fs->_sectors_per_fat);
+        - (_reserved_sectors + _fat_count * _sectors_per_fat);
 
-    fs->_total_clusters = data_sectors / fs->_sectors_per_cluster;
+    _total_clusters = data_sectors / _sectors_per_cluster;
 
     // Load PSINFO
-    fs->_fsinfo_lba = fs->_fat_start_lba - 1; // From BPB
-    fs->_fsinfo_valid = false;
-    fs->_fsinfo_dirty = false;
+    _fsinfo_lba = _fat_start_lba - 1; // From BPB
+    _fsinfo_valid = false;
+    _fsinfo_dirty = false;
 
     fsinfo_t *fsi;
-    if (!fs->load_sector(fs->_fsinfo_lba, (uint8_t**)&fsi)) {
+    if (!load_sector(_fsinfo_lba, (uint8_t**)&fsi)) {
 
         if (fsi->lead_sig  == fsinfo_t::SIG1 &&
             fsi->struct_sig == fsinfo_t::SIG2 &&
             fsi->trail_sig == fsinfo_t::SIG3) {
 
-            fs->_free_cluster_count = fsi->free_count;
-            fs->_next_free_cluster =
+            _free_cluster_count = fsi->free_count;
+            _next_free_cluster =
                 (fsi->next_free >= 2 &&
-                 fsi->next_free < fs->_total_clusters)
+                 fsi->next_free < _total_clusters)
                 ? fsi->next_free
                 : 2;
 
-            fs->_fsinfo_valid = true;
+            _fsinfo_valid = true;
         }
     }
 
-    // If invalid or missing: rebuild
-    if (!fs->_fsinfo_valid) {
+    // If invalid or missing: rebuild and (re)initialize
+    if (!_fsinfo_valid) {
         uint32_t free_count;
         uint32_t next_free;
 
-        if (fs->fat_recompute_free_clusters(&free_count, &next_free))
+        if (fat_recompute_free_clusters(&free_count, &next_free))
             return -1;
 
         fsi->lead_sig   = fsinfo_t::SIG1;
@@ -265,15 +298,15 @@ int Fat32::mount(BlockDev* bdev, Fat32::FileSys *fs)
         fsi->next_free  = next_free;
         fsi->trail_sig  = fsinfo_t::SIG3;
 
-        if (fs->store_sector(fs->_fsinfo_lba))
+        if (store_sector(_fsinfo_lba))
             return -1;
 
-        fs->_free_cluster_count = free_count;
-        fs->_next_free_cluster  = next_free;
-        fs->_fsinfo_valid       = true;
+        _free_cluster_count = free_count;
+        _next_free_cluster  = next_free;
+        _fsinfo_valid       = true;
     }
 
-    return 0;
+    return dir_load_volume_label_from_root();
 }
 
 
@@ -327,7 +360,7 @@ int Fat32::make_sfn(const char *name, uint8_t out[11])
 
 int Fat32::FileSys::dir_find(uint32_t cluster,
                              const char *name,
-                             Fat32::File *file)
+                             Fat32::FileSys::File *file)
 {
     uint8_t sname[11];
     if (make_sfn(name, sname))
@@ -453,7 +486,7 @@ int Fat32::FileSys::dir_find_free_slot(uint32_t dir_cluster,
 }
 
 
-int Fat32::FileSys::open(const char *path, Fat32::File *file)
+int Fat32::FileSys::open(const char *path, Fat32::FileSys::File *file)
 {
     uint32_t dir_cluster;
 
@@ -467,7 +500,7 @@ int Fat32::FileSys::open(const char *path, Fat32::File *file)
 }
 
 
-int Fat32::File::read(void *buffer, size_t len) 
+int Fat32::FileSys::File::read(void *buffer, size_t len) 
 {
     uint8_t *out = (uint8_t*)buffer;
 
@@ -502,7 +535,7 @@ int Fat32::File::read(void *buffer, size_t len)
 }
 
 
-int Fat32::File::write(const void *buffer, size_t len)
+int Fat32::FileSys::File::write(const void *buffer, size_t len)
 {
     const uint8_t *in = (const uint8_t*)buffer;
     size_t remaining = len;
@@ -578,13 +611,13 @@ int Fat32::FileSys::unlink(const char *path)
 }
 
 
-int Fat32::File::close()
+int Fat32::FileSys::File::close()
 {
     return 0;
 }
 
 
-int Fat32::FileSys::create(const char *path, Fat32::File *file)
+int Fat32::FileSys::create(const char *path, Fat32::FileSys::File *file)
 {
     File f;
 
