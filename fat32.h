@@ -8,8 +8,8 @@ namespace Fat32 {
     enum : uint16_t { SECTOR_SIZE = 512 };
     enum : uint32_t { EOC = 0x0ffffff8 };
 
-    enum DirEntAttr : uint8_t {
-        UNUSED    = 0x00,           // Unused entry
+    enum DirentAttr : uint8_t {
+        NONE      = 0x00,           // Unused entry
         READ_ONLY = 0x01,
         HIDDEN    = 0x02,
         SYSTEM    = 0x04,
@@ -99,7 +99,7 @@ namespace Fat32 {
         public:
             uint32_t _size;
             uint32_t _first_cluster;
-            DirEntAttr _attributes;
+            DirentAttr _attributes;
         };
 
 
@@ -174,7 +174,7 @@ namespace Fat32 {
 
         typedef struct {
             uint8_t  name[11];
-            enum DirEntAttr attr;
+            DirentAttr attr;
             uint8_t  nt_reserved;
             uint8_t  creation_time_tenth;
             uint16_t creation_time;

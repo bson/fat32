@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include "fat32.h"
 
+using namespace Fat32;
+
 // 
 // *** Crash Behavior Analysis ***
 //
@@ -28,7 +30,7 @@
 // Never causes another file to reference freed clusters.
 //
 
-int Fat32::FileSys::load_sector(uint32_t lba, uint8_t** sector)
+int FileSys::load_sector(uint32_t lba, uint8_t** sector)
 {
     if (lba == _sec_lba) {
         *sector = _sector;
@@ -44,7 +46,7 @@ int Fat32::FileSys::load_sector(uint32_t lba, uint8_t** sector)
 }
 
 
-int Fat32::FileSys::store_sector(uint32_t lba)
+int FileSys::store_sector(uint32_t lba)
 {
     if (_bdev.write_blocks(lba, 1, _sector))
         return -1;
@@ -54,13 +56,13 @@ int Fat32::FileSys::store_sector(uint32_t lba)
 }
 
 
-uint32_t Fat32::FileSys::cluster_to_lba(uint32_t cluster)
+uint32_t FileSys::cluster_to_lba(uint32_t cluster)
 {
     return _data_start_lba + ((cluster - 2) * _sectors_per_cluster);
 }
 
 
-int Fat32::FileSys::fat_get(uint32_t cluster, uint32_t *val)
+int FileSys::fat_get(uint32_t cluster, uint32_t *val)
 {
     uint32_t off = cluster * 4;
     uint32_t lba = _fat_start_lba + (off / SECTOR_SIZE);
@@ -75,7 +77,7 @@ int Fat32::FileSys::fat_get(uint32_t cluster, uint32_t *val)
 }
 
 
-int Fat32::FileSys::fat_set_single(uint32_t cluster,
+int FileSys::fat_set_single(uint32_t cluster,
                                    uint32_t val,
                                    uint32_t fat_index)
 {
@@ -99,7 +101,7 @@ int Fat32::FileSys::fat_set_single(uint32_t cluster,
 }
 
 
-int Fat32::FileSys::fat_set(uint32_t cluster, uint32_t val)
+int FileSys::fat_set(uint32_t cluster, uint32_t val)
 {
     for (uint32_t i = 0; i < _fat_count; i++)
         if (fat_set_single(cluster, val, i))
@@ -108,7 +110,7 @@ int Fat32::FileSys::fat_set(uint32_t cluster, uint32_t val)
 }
 
 
-int Fat32::FileSys::fat_allocate(uint32_t *out)
+int FileSys::fat_allocate(uint32_t *out)
 {
     uint32_t start = _fsinfo_valid ? _next_free_cluster : 2;
 
@@ -146,7 +148,7 @@ int Fat32::FileSys::fat_allocate(uint32_t *out)
 }
 
 
-int Fat32::FileSys::fat_free_chain(uint32_t start)
+int FileSys::fat_free_chain(uint32_t start)
 {
     uint32_t cluster = start;
 
@@ -173,7 +175,7 @@ int Fat32::FileSys::fat_free_chain(uint32_t start)
 }
 
 
-int Fat32::FileSys::fat_recompute_free_clusters(uint32_t* free_count, uint32_t* next_free) 
+int FileSys::fat_recompute_free_clusters(uint32_t* free_count, uint32_t* next_free) 
 {
     uint32_t free = 0;
     uint32_t first = 0;
@@ -197,7 +199,7 @@ int Fat32::FileSys::fat_recompute_free_clusters(uint32_t* free_count, uint32_t* 
     return 0;
 }
 
-int Fat32::FileSys::dir_load_volume_label_from_root()
+int FileSys::dir_load_volume_label_from_root()
 {
     uint32_t cluster = _root_cluster;
 
@@ -216,7 +218,7 @@ int Fat32::FileSys::dir_load_volume_label_from_root()
                 if (ent[i].name[0] == 0xe5)
                     continue;
 
-                if (ent[i].attr == DirEntAttr::VOLUME_ID) {
+                if (ent[i].attr == DirentAttr::VOLUME_ID) {
                     memcpy(_volume_label, ent[i].name, 11);
                     _volume_label[11] = 0;
 
@@ -236,7 +238,7 @@ int Fat32::FileSys::dir_load_volume_label_from_root()
 }
 
 
-int Fat32::FileSys::mount()
+int FileSys::mount()
 {
     bpb_t *bpb;
     if (load_sector(0, (uint8_t**)&bpb))
@@ -310,7 +312,7 @@ int Fat32::FileSys::mount()
 }
 
 
-int Fat32::FileSys::checkpoint()
+int FileSys::checkpoint()
 {
     if (!_fsinfo_valid || !_fsinfo_dirty)
         return 0;
@@ -358,9 +360,9 @@ int Fat32::make_sfn(const char *name, uint8_t out[11])
 }
 
 
-int Fat32::FileSys::dir_find(uint32_t cluster,
+int FileSys::dir_find(uint32_t cluster,
                              const char *name,
-                             Fat32::FileSys::File *file)
+                             FileSys::File *file)
 {
     uint8_t sname[11];
     if (make_sfn(name, sname))
@@ -384,7 +386,7 @@ int Fat32::FileSys::dir_find(uint32_t cluster,
                 if (ent[i].name[0] == 0xe5)
                     continue;
 
-                if (!(ent[i].attr & DirEntAttr::LFN)) {
+                if (!(ent[i].attr & DirentAttr::LFN)) {
                     if (!memcmp(sname, ent[i].name, sizeof sname)) {
 
                         file->_first_cluster =
@@ -413,7 +415,7 @@ int Fat32::FileSys::dir_find(uint32_t cluster,
 
 
 // For a path, find the parent dir cluster.  Path is clobbered.
-int Fat32::FileSys::dir_find_parent(char* path_buffer, bool tail, uint32_t* cluster)
+int FileSys::dir_find_parent(char* path_buffer, bool tail, uint32_t* cluster)
 {
     char *const slash = strrchr(path_buffer, '/');
     uint32_t c;
@@ -454,7 +456,7 @@ int Fat32::FileSys::dir_find_parent(char* path_buffer, bool tail, uint32_t* clus
 }
 
 
-int Fat32::FileSys::dir_find_free_slot(uint32_t dir_cluster,
+int FileSys::dir_find_free_slot(uint32_t dir_cluster,
                                        uint32_t *out_lba,
                                        uint32_t *out_offset)
 {
@@ -486,7 +488,7 @@ int Fat32::FileSys::dir_find_free_slot(uint32_t dir_cluster,
 }
 
 
-int Fat32::FileSys::open(const char *path, Fat32::FileSys::File *file)
+int FileSys::open(const char *path, FileSys::File *file)
 {
     uint32_t dir_cluster;
 
@@ -500,7 +502,7 @@ int Fat32::FileSys::open(const char *path, Fat32::FileSys::File *file)
 }
 
 
-int Fat32::FileSys::File::read(void *buffer, size_t len) 
+int FileSys::File::read(void *buffer, size_t len) 
 {
     uint8_t *out = (uint8_t*)buffer;
 
@@ -535,7 +537,7 @@ int Fat32::FileSys::File::read(void *buffer, size_t len)
 }
 
 
-int Fat32::FileSys::File::write(const void *buffer, size_t len)
+int FileSys::File::write(const void *buffer, size_t len)
 {
     const uint8_t *in = (const uint8_t*)buffer;
     size_t remaining = len;
@@ -589,7 +591,7 @@ int Fat32::FileSys::File::write(const void *buffer, size_t len)
 }
 
 
-int Fat32::FileSys::unlink(const char *path)
+int FileSys::unlink(const char *path)
 {
     File file;
 
@@ -611,13 +613,13 @@ int Fat32::FileSys::unlink(const char *path)
 }
 
 
-int Fat32::FileSys::File::close()
+int FileSys::File::close()
 {
     return 0;
 }
 
 
-int Fat32::FileSys::create(const char *path, Fat32::FileSys::File *file)
+int FileSys::create(const char *path, FileSys::File *file)
 {
     File f;
 
@@ -652,7 +654,7 @@ int Fat32::FileSys::create(const char *path, Fat32::FileSys::File *file)
     if (make_sfn(basename(path), ent->name))
         return -1;
 
-    ent->attr = DirEntAttr::UNUSED;
+    ent->attr = DirentAttr::NONE;
     ent->first_cluster_lo = cluster & 0xffff;
     ent->first_cluster_hi = cluster >> 16;
     ent->file_size = 0;
@@ -668,7 +670,7 @@ int Fat32::FileSys::create(const char *path, Fat32::FileSys::File *file)
 }
 
 
-int Fat32::FileSys::stat(const char *path, Fat32::FileSys::Stat *st)
+int FileSys::stat(const char *path, FileSys::Stat *st)
 {
     File f;
 
@@ -677,7 +679,7 @@ int Fat32::FileSys::stat(const char *path, Fat32::FileSys::Stat *st)
 
     st->_size = f._file_size;
     st->_first_cluster = f._first_cluster;
-    st->_attributes = DirEntAttr::UNUSED;
+    st->_attributes = DirentAttr::NONE;
 
     /* reload directory entry */
     uint8_t* sector;
@@ -693,7 +695,7 @@ int Fat32::FileSys::stat(const char *path, Fat32::FileSys::Stat *st)
 }
 
 
-int Fat32::FileSys::dir_is_empty(uint32_t cluster)
+int FileSys::dir_is_empty(uint32_t cluster)
 {
     static const uint8_t dot[12] = ".          ";
     static const uint8_t dotdot[12] = "..         ";
@@ -716,7 +718,7 @@ int Fat32::FileSys::dir_is_empty(uint32_t cluster)
                     continue;
 
                 /* Skip "." and ".." */
-                if ((ent[i].attr & DirEntAttr::DIRECTORY) &&
+                if ((ent[i].attr & DirentAttr::DIRECTORY) &&
                     (!memcmp(ent[i].name, dot, 11)
                      || !memcmp(ent[i].name, dotdot, 11)))
                     continue;
@@ -733,7 +735,7 @@ int Fat32::FileSys::dir_is_empty(uint32_t cluster)
 }
 
 
-int Fat32::FileSys::mkdir(const char *path)
+int FileSys::mkdir(const char *path)
 {
     File f;
 
@@ -768,7 +770,7 @@ int Fat32::FileSys::mkdir(const char *path)
     memset(&ent[0], 0, sizeof(*ent));
     memset(ent[0].name, ' ', 11);
     ent[0].name[0] = '.';
-    ent[0].attr = DirEntAttr::DIRECTORY;
+    ent[0].attr = DirentAttr::DIRECTORY;
     ent[0].first_cluster_lo = new_cluster & 0xffff;
     ent[0].first_cluster_hi = new_cluster >> 16;
 
@@ -777,7 +779,7 @@ int Fat32::FileSys::mkdir(const char *path)
     memset(ent[1].name, ' ', 11);
     ent[1].name[0] = '.';
     ent[1].name[1] = '.';
-    ent[1].attr = DirEntAttr::DIRECTORY;
+    ent[1].attr = DirentAttr::DIRECTORY;
     ent[1].first_cluster_lo = parent_cluster & 0xffff;
     ent[1].first_cluster_hi = parent_cluster >> 16;
 
@@ -796,7 +798,7 @@ int Fat32::FileSys::mkdir(const char *path)
     if (make_sfn(basename(path), slot->name))
         return -1;
 
-    slot->attr = DirEntAttr::DIRECTORY;
+    slot->attr = DirentAttr::DIRECTORY;
     slot->first_cluster_lo = new_cluster & 0xffff;
     slot->first_cluster_hi = new_cluster >> 16;
     slot->file_size = 0;
@@ -808,7 +810,7 @@ int Fat32::FileSys::mkdir(const char *path)
 }
 
 
-int Fat32::FileSys::rmdir(const char *path)
+int FileSys::rmdir(const char *path)
 {
     File f;
 
