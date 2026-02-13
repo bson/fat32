@@ -74,8 +74,10 @@ int CacheBlockDev::read_blocks(uint32_t lba, uint32_t count, void *buffer)
 {
     uint8_t *out = (uint8_t*)buffer;
 
+    _nreads += count;
+
     for (uint32_t i = 0; i < count; i++) {
-        uint32_t cur = lba + i;
+        const uint32_t cur = lba + i;
 
         CacheEntry *e = cache_lookup(cur);
 
@@ -90,6 +92,8 @@ int CacheBlockDev::read_blocks(uint32_t lba, uint32_t count, void *buffer)
             e->lba = cur;
             e->valid = 1;
             e->dirty = 0;
+        } else {
+            ++_nread_hits;
         }
 
         ::memcpy(out, e->data, SECTOR_SIZE);
@@ -106,8 +110,10 @@ int CacheBlockDev::write_blocks(uint32_t lba, uint32_t count, const void *buffer
 {
     const uint8_t *in = (const uint8_t*)buffer;
 
+    _nwrites += count;
+
     for (uint32_t i = 0; i < count; i++) {
-        uint32_t cur = lba + i;
+        const uint32_t cur = lba + i;
 
         CacheEntry *e = cache_lookup(cur);
 
@@ -119,6 +125,8 @@ int CacheBlockDev::write_blocks(uint32_t lba, uint32_t count, const void *buffer
             e->lba = cur;
             e->valid = 1;
             e->dirty = 0;
+        } else {
+            ++_nwrite_hits;
         }
 
         ::memcpy(e->data, in, SECTOR_SIZE);

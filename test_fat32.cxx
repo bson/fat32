@@ -503,9 +503,15 @@ int main(void)
 
     test_psinfo_write(&fs);
 
+    fs.sync();
+
     close(bdev.fd);
 
     printf("All tests completed.\n");
-    printf("%d loads, %d stores\n", bdev.numloads, bdev.numstores);
+    printf("\nSector I/O: %d loads, %d stores\n", bdev.numloads, bdev.numstores);
+    printf("\nCache: %d reads (%d hits, %d%%), %d writes (%d hits, %d%%)\n",
+           bcache._nreads, bcache._nread_hits, (bcache._nread_hits*100)/bcache._nreads,
+           bcache._nwrites, bcache._nwrite_hits, (bcache._nwrite_hits*100)/bcache._nwrites);
+
     return 0;
 }

@@ -4,7 +4,7 @@
 
 
 // Hard-wire the size
-enum : int { CACHE_SECTORS = 4 };
+enum : int { CACHE_SECTORS = 8 };
 enum : int { SECTOR_SIZE = 512 };
 
 
@@ -30,14 +30,24 @@ class CacheBlockDev: public BlockDev
     const bool     _write_through;
 
 public:
+    uint32_t       _nreads;
+    uint32_t       _nread_hits;
+    uint32_t       _nwrites;
+    uint32_t       _nwrite_hits;
 
     CacheBlockDev(BlockDev& bdev, bool write_through)
         : _bdev(bdev),
           _write_through(write_through)
     { 
         ::memset(_entries, 0, sizeof _entries);
+
         _lru_head = NULL;
         _lru_tail = NULL;
+
+       _nreads = 0;
+       _nread_hits = 0;
+       _nwrites = 0;
+       _nwrite_hits = 0;
     }
 
     int read_blocks(uint32_t lba, uint32_t count, void *buffer);
