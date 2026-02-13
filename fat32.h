@@ -29,18 +29,17 @@ namespace Fat32 {
         END = 2
     };
 
-    enum Error : uint16_t {
+    enum Error : uint8_t {
         SUCCESS                   = 0,
         BDEV_READ_ERR             = 1, // Block device read error
         BDEV_WRITE_ERR            = 2, // Block device write error
         FAT_FULL                  = 3, // FAT full, unable to allocate cluster
-        NO_VOLUME_LABEL           = 4, // Volume doesn't have a label
+        ALREADY_EXISTS            = 4, // Already exists
         UNSUPPORTED_SECTOR_SIZE   = 5, // Unable to mount due to unsupported sector size
         MALFORMED_FILENAME        = 6, // Malformed 8.3 SFN
         FILE_NOT_FOUND            = 7, // File or path component not found
         DIRECTORY_FULL            = 8, // No free entry in directory
         NEGATIVE_SEEK             = 9, // Seek to negative position
-        ALREADY_EXISTS            = 10, // Already exists
         NUM_ERRORS
     };
 

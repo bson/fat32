@@ -35,13 +35,12 @@ static const char* error_strings[] = {
     [BDEV_READ_ERR]           = "Block device read error",
     [BDEV_WRITE_ERR]          = "Block device write error",
     [FAT_FULL]                = "FAT full, unable to allocate cluster",
-    [NO_VOLUME_LABEL]         = "Volume doesn't have a label",
+    [ALREADY_EXISTS]          = "Already exists",
     [UNSUPPORTED_SECTOR_SIZE] = "Unsupported sector size",
     [MALFORMED_FILENAME]      = "Malformed filename",
     [FILE_NOT_FOUND]          = "File or path component not found",
     [DIRECTORY_FULL]          = "Directory full",
     [NEGATIVE_SEEK]           = "Seek to negative position",
-    [ALREADY_EXISTS]          = "Already exists"
 };
 
 
@@ -237,7 +236,7 @@ int FileSys::dir_load_volume_label_from_root()
 
             for (int i = 0; i < _bytes_per_sector / sizeof(*ent); i++) {
                 if (ent[i].name[0] == 0x00)
-                    return with_error(Error::NO_VOLUME_LABEL);
+                    goto no_label;
 
                 if (ent[i].name[0] == 0xe5)
                     continue;
@@ -258,7 +257,10 @@ int FileSys::dir_load_volume_label_from_root()
             return -1;
     }
 
-    return with_error(Error::NO_VOLUME_LABEL);
+no_label:
+    // Volume has no label, simply use "UNKNOWN"
+    ::memcpy(_volume_label, "UNKNOWN\0\0\0\0", 12);  // Including trailing 0
+    return success();
 }
 
 
