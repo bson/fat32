@@ -245,6 +245,7 @@ int FileSys::mount()
         return -1;
 
     _reserved_sectors   = bpb->reserved_sector_count;
+    _bytes_per_sector   = bpb->bytes_per_sector;
     _sectors_per_cluster= bpb->sectors_per_cluster;
     _sectors_per_fat    = bpb->fat_size_32;
     _fat_count          = bpb->num_fats;
@@ -488,6 +489,74 @@ int FileSys::dir_find_free_slot(uint32_t dir_cluster,
 }
 
 
+int FileSys::cluster_for_offset(uint32_t first_cluster,
+                                uint32_t offset,
+                                uint32_t *out_cluster,
+                                uint32_t *cluster_index) 
+{
+    uint32_t cluster_size = _sectors_per_cluster * SECTOR_SIZE;
+    uint32_t index = offset / cluster_size;
+    uint32_t cluster = first_cluster;
+
+    for (uint32_t i = 0; i < index; i++) {
+        if (fat_get(cluster, &cluster))
+            return -1;
+
+        if (cluster >= EOC)
+            return -1;
+    }
+
+    *out_cluster = cluster;
+    *cluster_index = index;
+    return 0;
+}
+
+
+int FileSys::File::ensure_cluster_index(uint32_t needed_index, uint32_t *out_cluster)
+{
+    uint32_t cluster = _first_cluster;
+    uint32_t index = 0;
+
+    while (index < needed_index) {
+        uint32_t next;
+        if (_fs->fat_get(cluster, &next))
+            return -1;
+
+        if (next >= EOC) {
+            uint32_t new_cluster;
+            if (_fs->fat_allocate(&new_cluster))
+                return -1;
+
+            if (_fs->fat_set(cluster, new_cluster))
+                return -1;
+
+            cluster = new_cluster;
+        } else {
+            cluster = next;
+        }
+
+        index++;
+    }
+
+    *out_cluster = cluster;
+    return 0;
+}
+
+
+int FileSys::File::update_dirent_size() 
+{
+    uint8_t* sector;
+    if (_fs->load_sector(_dir_lba, &sector))
+        return -1;
+
+    dirent_t *ent = (dirent_t*)&sector[_dir_offset];
+
+    ent->file_size = _file_size;
+
+    return _fs->store_sector(_dir_lba);
+}
+
+
 int FileSys::open(const char *path, FileSys::File *file)
 {
     uint32_t dir_cluster;
@@ -502,93 +571,218 @@ int FileSys::open(const char *path, FileSys::File *file)
 }
 
 
+uint32_t FileSys::cluster_size()
+{
+    return _bytes_per_sector * _sectors_per_cluster;
+}
+
+
+int FileSys::fat_cluster_at(uint32_t start_cluster, uint32_t index, uint32_t* cluster)
+{
+    uint32_t c;
+    for (c = start_cluster; index-- && c >= 2 && c < EOC; )
+        if (fat_get(c, &c))
+            return -1;
+    
+    *cluster = c;
+    return 0;
+}
+
+
 int FileSys::File::read(void *buffer, size_t len) 
 {
-    uint8_t *out = (uint8_t*)buffer;
+    if (_file_pos >= _file_size)
+        return 0;
 
     if (_file_pos + len > _file_size)
         len = _file_size - _file_pos;
 
-    size_t remaining = len;
+    uint8_t *out = (uint8_t*)buffer;
+    uint32_t remaining = len;
+    uint32_t total_read = 0;
 
-    while (remaining > 0 && _current_cluster < EOC) {
-        const uint32_t lba = _fs->cluster_to_lba(_current_cluster);
+    const uint32_t cluster_size = _fs->_sectors_per_cluster * SECTOR_SIZE;
 
-        for (uint32_t s = 0; s < _fs->_sectors_per_cluster && remaining > 0; s++) {
-            uint8_t* sector;
-            if (_fs->load_sector(lba + s, &sector))
-                return -1;
+    while (remaining > 0) {
+        uint32_t cluster;
+        uint32_t cluster_index;
 
-            const size_t copy = min<size_t>(remaining, SECTOR_SIZE);
-            ::memcpy(out, sector, copy);
-
-            out += copy;
-            remaining -= copy;
-            _file_pos += copy;
-
-            //assert(remaining >= 0);
-        }
-
-        if (_fs->fat_get(_current_cluster, &_current_cluster))
+        if (_fs->cluster_for_offset(_first_cluster, _file_pos, &cluster, &cluster_index))
             return -1;
+
+        const uint32_t cluster_offset = _file_pos % cluster_size;
+        const uint32_t lba = _fs->cluster_to_lba(cluster) + (cluster_offset / SECTOR_SIZE);
+
+        uint8_t* sector;
+        if (_fs->load_sector(lba, &sector))
+            return -1;
+
+        const uint32_t sector_offset = cluster_offset % SECTOR_SIZE;
+        const uint32_t to_copy = min(SECTOR_SIZE - sector_offset, remaining);
+        ::memcpy(out, sector + sector_offset, to_copy);
+
+        out += to_copy;
+        remaining -= to_copy;
+        total_read += to_copy;
+        _file_pos = min(_file_pos + to_copy, _file_size);
     }
 
-    return -(remaining != 0);
+    return total_read;
 }
 
 
 int FileSys::File::write(const void *buffer, size_t len)
 {
     const uint8_t *in = (const uint8_t*)buffer;
-    size_t remaining = len;
+
+    uint32_t remaining = len;
+    uint32_t total_written = 0;
+
+    const uint32_t cluster_size = _fs->_sectors_per_cluster * SECTOR_SIZE;
 
     while (remaining > 0) {
-        const uint32_t lba = _fs->cluster_to_lba(_current_cluster);
+        const uint32_t needed_index = _file_pos / cluster_size;
 
-        for (uint32_t s = 0; s < _fs->_sectors_per_cluster && remaining; s++) {
-            ::memset(_fs->_sector, 0, SECTOR_SIZE);
+        uint32_t cluster;
+        if (ensure_cluster_index(needed_index, &cluster))
+            return -1;
 
-            const size_t copy = min<size_t>(remaining, SECTOR_SIZE);
-            ::memcpy(_fs->_sector, in, copy);
-            if (_fs->store_sector(lba + s))
+        const uint32_t cluster_offset = _file_pos % cluster_size;
+        const uint32_t lba = _fs->cluster_to_lba(cluster) + (cluster_offset / SECTOR_SIZE);
+
+        uint8_t* sector;
+        if (_fs->load_sector(lba, &sector))
+            return -1;
+
+        const uint32_t sector_offset = cluster_offset % SECTOR_SIZE;
+        const uint32_t to_copy = min(SECTOR_SIZE - sector_offset, remaining);
+
+        ::memcpy(sector + sector_offset, in, to_copy);
+
+        /* DATA FIRST */
+        if (_fs->store_sector(lba))
+            return -1;
+
+        in += to_copy;
+        remaining -= to_copy;
+        total_written += to_copy;
+        _file_pos += to_copy;
+
+        if (_file_pos > _file_size)
+            _file_size = _file_pos;
+    }
+
+#if 0 // Update on close or sync
+    /* After data + FAT updates, update size */
+    if (update_dirent_size())
+        return -1;
+#endif
+    return total_written;
+}
+
+int FileSys::File::truncate(uint32_t new_size)
+{
+    const uint32_t cl_size = _fs->cluster_size();
+
+    /* No-op */
+    if (new_size == _file_size)
+        return 0;
+
+    /* ---------------- SHRINK ---------------- */
+    if (new_size < _file_size) {
+        if (new_size == 0) {
+            if (_first_cluster >= 2)
+                _fs->fat_free_chain(_first_cluster);
+
+            _first_cluster = 0;
+        } else {
+            const uint32_t last_cluster_index = (new_size - 1) / cl_size;
+            uint32_t last_cluster;
+            if (_fs->fat_cluster_at(_first_cluster, last_cluster_index, &last_cluster))
                 return -1;
 
-            in += copy;
-            remaining -= copy;
-            _file_pos += copy;
-            _file_size += copy;
+            uint32_t next;
+            if (_fs->fat_get(last_cluster, &next))
+                return -1;
+
+            if (next >= 2 && next < EOC)
+                _fs->fat_free_chain(next);
+
+            _fs->fat_set(last_cluster, EOC);
         }
 
-        if (remaining > 0) {
-            uint32_t new_cluster;
-            if (_fs->fat_allocate(&new_cluster))
-                return -1;
+        _file_size = new_size;
+        _file_pos = min(_file_pos, new_size);
 
-            /* Safe ordering:
-               1. new cluster already marked EOC
-               2. link previous -> new
-            */
-            if (_fs->fat_set(_current_cluster, new_cluster))
-                return -1;
+        return update_dirent_size();
+    }
 
-            _current_cluster = new_cluster;
+    /* ---------------- GROW ---------------- */
+
+    const uint32_t needed_clusters = (new_size + cl_size - 1) / cl_size;
+
+    uint32_t current_clusters = 0;
+
+    if (_first_cluster >= 2) {
+        uint32_t c = _first_cluster;
+        while (c >= 2 && c < EOC) {
+            ++current_clusters;
+            if (_fs->fat_get(c, &c))
+                return -1;
         }
     }
 
-    /* update directory size AFTER data write */
-    uint8_t* sector;
-    if (_fs->load_sector(_dir_lba, &sector))
-        return -1;
+    while (current_clusters < needed_clusters) {
+        uint32_t newc;
+        if (_fs->fat_allocate(&newc))
+            return -1;
 
-    dirent_t *ent = (dirent_t*)&sector[_dir_offset];
+        if (_first_cluster == 0) {
+            _first_cluster = newc;
+        } else {
+            uint32_t last;
+            if(_fs->fat_cluster_at(_first_cluster, current_clusters - 1, &last))
+                return -1;
 
-    ent->file_size = _file_size;
+            _fs->fat_set(last, newc);
+        }
 
-    if (_fs->store_sector(_dir_lba))
-        return -1;
+        _fs->fat_set(newc, EOC);
+        ++current_clusters;
+    }
 
-    return len;
+    _file_size = new_size;
+    return update_dirent_size();
 }
+
+int FileSys::File::lseek(int32_t offset, SeekOp whence)
+{
+    uint32_t new_pos;
+
+    switch (whence) {
+    case SeekOp::SET:
+        new_pos = offset;
+        break;
+
+    case SeekOp::CUR:
+        new_pos = _file_pos + offset;
+        break;
+
+    case SeekOp::END:
+        new_pos = _file_size + offset;
+        break;
+
+    default:
+        return -1;
+    }
+
+    if ((int32_t)new_pos < 0)
+        return -1;
+
+    _file_pos = new_pos;
+    return 0;
+}
+
 
 
 int FileSys::unlink(const char *path)
@@ -613,9 +807,10 @@ int FileSys::unlink(const char *path)
 }
 
 
-int FileSys::File::close()
+
+int FileSys::File::sync()
 {
-    return 0;
+    return update_dirent_size();
 }
 
 

@@ -75,27 +75,27 @@ public:
 
 /* ================= TEST HELPERS ================= */
 
-static void die(const char *msg)
+void die(const char *msg)
 {
     perror(msg);
     exit(EXIT_FAILURE);
 }
 
-static void test_mount(Fat32::FileSys *fs)
+void test_mount(Fat32::FileSys *fs)
 {
     printf("TEST: mount\n");
     assert(fs->mount() == 0);
     printf("  Volume Label: \"%s\"\n", fs->volume_label());
 }
 
-static void test_open_nonexistent(Fat32::FileSys *fs)
+void test_open_nonexistent(Fat32::FileSys *fs)
 {
     printf("TEST: open nonexistent file\n");
     Fat32::FileSys::File f;
     assert(fs->open("nope.txt", &f) != 0);
 }
 
-static void test_create_write_read_delete(Fat32::FileSys *fs)
+void test_create_write_read_delete(Fat32::FileSys *fs)
 {
     printf("TEST: write existing file\n");
 
@@ -122,7 +122,7 @@ static void test_create_write_read_delete(Fat32::FileSys *fs)
 //    assert(fs->unlink(filename) == 0);
 }
 
-static void test_multilevel_path(Fat32::FileSys *fs)
+void test_multilevel_path(Fat32::FileSys *fs)
 {
     printf("TEST: multi-level path\n");
 
@@ -139,7 +139,7 @@ static void test_multilevel_path(Fat32::FileSys *fs)
     }
 }
 
-static void test_stat(Fat32::FileSys *fs)
+void test_stat(Fat32::FileSys *fs)
 {
     printf("TEST: Fat32::stat\n");
 
@@ -212,6 +212,137 @@ void test_psinfo_write(Fat32::FileSys* fs)
 }
 
 
+// Basic Write / Read Roundtrip
+void test_basic_write_read(Fat32::FileSys* fs)
+{
+    Fat32::FileSys::File f;
+    const char *name = "basic.txt";
+    const char *data = "hello fat32";
+    char buf[64];
+
+    assert(fs->create(name, &f) == 0);
+    assert(f.write(data, strlen(data)) == (int)strlen(data));
+
+    assert(f.lseek(0, Fat32::SeekOp::SET) == 0);
+
+    memset(buf, 0, sizeof(buf));
+    assert(f.read(buf, sizeof(buf)) == (int)strlen(data));
+    assert(strcmp(buf, data) == 0);
+    
+    f.close();
+}
+
+
+// Overwrite In Middle (No Append)
+void test_overwrite_middle(Fat32::FileSys* fs)
+{
+    Fat32::FileSys::File f;
+    const char *name = "overwrt.txt";
+    char buf[32];
+
+    assert(fs->create(name, &f) == 0);
+    assert(f.write("abcdef", 6) == 6);
+
+    assert(f.lseek(2, Fat32::SeekOp::SET) == 0);
+    assert(f.write("ZZ", 2) == 2);
+
+    assert(f.lseek(0, Fat32::SeekOp::SET) == 0);
+    assert(f.read(buf, 6) == 6);
+
+    assert(memcmp(buf, "abZZef", 6) == 0);
+
+    f.close();
+}
+
+
+// Seek Beyond EOF Then Write (File Growth)
+void test_seek_beyond_eof_write(Fat32::FileSys* fs)
+{
+    Fat32::FileSys::File f;
+    const char *name = "grow.txt";
+    char buf[32];
+
+    assert(fs->create(name, &f) == 0);
+    assert(f.write("abc", 3) == 3);
+
+    assert(f.lseek(10, Fat32::SeekOp::SET) == 0);
+    assert(f.write("X", 1) == 1);
+
+    Fat32::FileSys::Stat st;
+    assert(fs->stat(name, &st) == 0);
+
+    assert(f.lseek(0, Fat32::SeekOp::SET) == 0);
+    assert(f.read(buf, 11) == 11);
+
+    assert(buf[0] == 'a');
+    assert(buf[1] == 'b');
+    assert(buf[2] == 'c');
+    assert(buf[10] == 'X');
+
+    f.close();
+}
+
+
+// Truncate Shrink
+void test_truncate_shrink(Fat32::FileSys* fs)
+{
+    Fat32::FileSys::File f;
+    const char *name = "shrink.txt";
+    char buf[32];
+
+    assert(fs->create(name, &f) == 0);
+    assert(f.write("0123456789", 10) == 10);
+
+    assert(f.truncate(4) == 0);
+
+    assert(f.lseek(0, Fat32::SeekOp::SET) == 0);
+    assert(f.read(buf, 16) == 4);
+    assert(memcmp(buf, "0123", 4) == 0);
+
+    f.close();
+}
+
+
+// Truncate Grow
+void test_truncate_grow(Fat32::FileSys* fs)
+{
+    Fat32::FileSys::File f;
+    const char *name = "grow_tr.txt";
+    char buf[64];
+
+    assert(fs->create(name, &f) == 0);
+    assert(f.write("abc", 3) == 3);
+
+    assert(f.truncate(20) == 0);
+
+    assert(f.lseek(0, Fat32::SeekOp::SET) == 0);
+    assert(f.read(buf, 20) == 20);
+
+    assert(memcmp(buf, "abc", 3) == 0);
+
+    f.close();
+}
+
+
+// Truncate To Zero (Cluster Free)
+void test_truncate_zero(Fat32::FileSys* fs)
+{
+    Fat32::FileSys::File f;
+    const char *name = "zero.txt";
+
+    assert(fs->create(name, &f) == 0);
+    assert(f.write("long long data", 14) == 14);
+
+    assert(f.truncate(0) == 0);
+
+    Fat32::FileSys::Stat st;
+    assert(fs->stat(name, &st) == 0);
+    assert(st._size == 0);
+
+    f.close();
+}
+
+
 /* ================= MAIN ================= */
 
 int main(void)
@@ -233,6 +364,14 @@ int main(void)
     test_multilevel_path(&fs);
     test_stat(&fs);
     test_dirops(&fs);
+
+    test_basic_write_read(&fs);
+    test_overwrite_middle(&fs);
+    test_seek_beyond_eof_write(&fs);
+    test_truncate_shrink(&fs);
+    test_truncate_grow(&fs);
+    test_truncate_zero(&fs);
+
     test_psinfo_write(&fs);
 
     close(bdev.fd);

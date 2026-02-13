@@ -19,6 +19,13 @@ namespace Fat32 {
         ARCHIVE   = 0x20
     };
 
+    // Naming here is to match canonical use
+    enum SeekOp : int {
+        SET = 0,
+        CUR = 1, 
+        END = 2
+    };
+
 
     class FileSys {
         BlockDev& _bdev;
@@ -32,6 +39,7 @@ namespace Fat32 {
         uint32_t _root_cluster;
 
         uint32_t _sectors_per_cluster;
+        uint32_t _bytes_per_sector;
         uint32_t _reserved_sectors;
         uint32_t _sectors_per_fat;
         uint32_t _fat_count;
@@ -89,9 +97,22 @@ namespace Fat32 {
             uint32_t _dir_lba;
             uint32_t _dir_offset;
 
+            // These return bytes read/written, or -1 on error
             int read(void *buffer, size_t len);
             int write(const void *buffer, size_t len);
-            int close();
+
+            int lseek(int32_t offset, SeekOp whence);
+            int truncate(uint32_t new_size);
+
+            int close() { return sync(); }
+            int sync();
+
+        private:
+            // Make sure a specific cluster exists, extending the file if necessary
+            int ensure_cluster_index(uint32_t needed_index, uint32_t *out_cluster);
+
+            // Update directory entry size field
+            int update_dirent_size();
         };
 
 
@@ -110,6 +131,7 @@ namespace Fat32 {
         int store_sector(uint32_t lba); // Write sector buffer
 
     private:
+        uint32_t cluster_size();
         uint32_t cluster_to_lba(uint32_t cluster);
         int fat_get(uint32_t cluster, uint32_t *val);
         int fat_set_single(uint32_t cluster, uint32_t val, uint32_t fat_index);
@@ -117,6 +139,12 @@ namespace Fat32 {
         int fat_allocate(uint32_t *out);
         int fat_free_chain(uint32_t start);
         int fat_recompute_free_clusters(uint32_t* free_count, uint32_t* next_free);
+        int fat_cluster_at(uint32_t start_cluster, uint32_t index, uint32_t* cluster); // FAT Walk
+
+        int cluster_for_offset(uint32_t first_cluster,
+                               uint32_t offset,
+                               uint32_t *out_cluster,
+                               uint32_t *cluster_index);
 
         int dir_load_volume_label_from_root();
         int dir_find(uint32_t cluster, const char *name, File *file);
