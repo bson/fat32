@@ -1,6 +1,6 @@
 #include <string.h>
 #include <ctype.h>
-#include <stdio.h>
+
 #include "fat32.h"
 
 using namespace Fat32;
@@ -342,7 +342,7 @@ int FileSys::mount()
 }
 
 
-int FileSys::checkpoint()
+int FileSys::sync()
 {
     if (!_fsinfo_valid || !_fsinfo_dirty)
         return success();
@@ -897,6 +897,66 @@ int FileSys::create(const char *path, FileSys::File *file)
 }
 
 
+int FileSys::rename(const char *from_path, const char* to_path)
+{
+    // First form dest filename to make sure it's sensible
+    const char* name = ::strrchr(to_path, '/');
+    if (name)
+        ++name;
+    else
+        name = to_path;
+
+    uint8_t new_sfn[11];
+    if (make_sfn(name, new_sfn))
+        return -1;
+
+    File old;
+    if (open(from_path, &old))
+        return -1;
+
+    File f;
+    if (open(to_path, &f) == 0)
+        return with_error(Error::ALREADY_EXISTS);
+
+    /* Extract parent directory cluster of new_path */
+    uint32_t to_dir_cluster;
+    char tmp[256];
+    ::strncpy(tmp, to_path, sizeof tmp);
+    tmp[255] = 0;
+    if (dir_find_parent(tmp, true, &to_dir_cluster))
+        return -1;
+
+    uint8_t* sector;
+    if (load_sector(old._dir_lba, &sector))
+        return -1;
+
+    dirent_t* entry = (dirent_t*)&sector[old._dir_offset];
+    dirent_t old_entry = *entry;
+    entry->name[0] = 0xe5;      // Mark old deleted
+
+    if (store_sector(old._dir_lba))
+        return -1;
+
+    // Add to dest dir. A crash at this point means the file is
+    // orphaned; it can never appear in two directories.
+
+    uint32_t lba;
+    uint32_t off;
+    if (dir_find_free_slot(to_dir_cluster, &lba, &off))
+        return -1;
+
+    if (load_sector(lba, &sector))
+        return -1;
+
+    ::memcpy(old_entry.name, new_sfn, sizeof old_entry.name);
+    *(dirent_t*)&sector[off] = old_entry;
+    if (store_sector(lba))
+        return -1;
+
+    return success();
+}
+
+
 int FileSys::stat(const char *path, FileSys::Stat *st)
 {
     File f;
@@ -914,7 +974,7 @@ int FileSys::stat(const char *path, FileSys::Stat *st)
     if (load_sector(f._dir_lba, &sector))
         return -1;
     
-    dirent_t *ent = (dirent_t*)(sector + f._dir_offset);
+    const dirent_t *ent = (dirent_t*)(sector + f._dir_offset);
 
     st->_attributes = ent->attr;
 

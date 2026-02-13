@@ -205,10 +205,10 @@ void test_dirops(Fat32::FileSys* fs)
 
 void test_psinfo_write(Fat32::FileSys* fs)
 {
-    printf("TEST: Fat32::checkpoint\n");
+    printf("TEST: Fat32::sync\n");
 
-    assert(fs->checkpoint() == 0);
-    printf("  Fat32::checkpoint passed\n");
+    assert(fs->sync() == 0);
+    printf("  Fat32::sync passed\n");
 }
 
 
@@ -342,6 +342,45 @@ void test_truncate_zero(Fat32::FileSys* fs)
     assert(f.close() == 0);
 }
 
+void test_rename(Fat32::FileSys* fs)
+{
+    Fat32::FileSys::File f;
+    Fat32::FileSys::Stat st;
+    char buf[32];
+
+    const char *oldname = "oldname.txt";
+    const char *newname = "newname.txt";
+
+    printf("TEST: rename\n");
+
+    /* Ensure clean */
+    fs->unlink(oldname);
+    fs->unlink(newname);
+
+    /* Create and write */
+    assert(fs->create(oldname, &f) == 0);
+    assert(f.write("rename-test", 11) == 11);
+    assert(f.close() == 0);
+
+    /* Rename */
+    assert(fs->rename(oldname, newname) == 0);
+
+    /* Old must not exist */
+    assert(fs->stat(oldname, &st) != 0);
+
+    /* New must exist */
+    assert(fs->stat(newname, &st) == 0);
+    assert(st._size == 11);
+
+    /* Verify contents */
+    assert(fs->open(newname, &f) == 0);
+    assert(f.read(buf, 11) == 11);
+    assert(memcmp(buf, "rename-test", 11) == 0);
+    assert(f.close() == 0);
+
+    printf("  rename passed\n");
+}
+
 
 /* ================= MAIN ================= */
 
@@ -364,6 +403,7 @@ int main(void)
     test_multilevel_path(&fs);
     test_stat(&fs);
     test_dirops(&fs);
+    test_rename(&fs);
 
     test_basic_write_read(&fs);
     test_overwrite_middle(&fs);

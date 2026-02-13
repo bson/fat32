@@ -84,8 +84,8 @@ namespace Fat32 {
 
         int mount();
 
-        // Checkpoint FS state (PSINFO) if dirty
-        int checkpoint();
+        // Checkpoint FS state (currently only PSINFO) if dirty
+        int sync();
 
         int stat(const char *path, Stat *st);
 
@@ -94,6 +94,7 @@ namespace Fat32 {
 
         // Must not exist: create and open
         int create(const char *path, File *file);
+        int rename(const char *from_path, const char* to_path);
         int unlink(const char *path);
 
         int mkdir(const char *path);
@@ -148,7 +149,6 @@ namespace Fat32 {
             uint32_t _first_cluster;
             DirentAttr _attributes;
         };
-
 
     protected:
         friend class Fat32;
