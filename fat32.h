@@ -3,13 +3,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
-template <typename T1, typename T2>
-T1 min(const T1& a, const T2& b) {
-    return a < (T1)b ? a : (T1)b;
-}
+namespace Fat32 {
 
-class Fat32 {
-public:
     enum : uint16_t { SECTOR_SIZE = 512 };
     enum : uint32_t { EOC = 0x0ffffff8 };
 
@@ -50,6 +45,8 @@ public:
 
         char     _volume_label[12];
 
+        FileSys() = delete;
+        FileSys(FileSys&) = delete;
 
     public:
         class File;
@@ -92,11 +89,8 @@ public:
             uint32_t _dir_lba;
             uint32_t _dir_offset;
 
-
             int read(void *buffer, size_t len);
-
             int write(const void *buffer, size_t len);
-
             int close();
         };
 
@@ -111,7 +105,6 @@ public:
 
     protected:
         friend class Fat32;
-        friend class File;
 
         int load_sector(uint32_t lba, uint8_t** sector); // Load sector, if needed
         int store_sector(uint32_t lba); // Write sector buffer
@@ -132,78 +125,80 @@ public:
         int dir_find_parent(char* path_buffer, bool tail, uint32_t* cluster);
         int dir_is_empty(uint32_t cluster);
 
+        // Disk structures
+
+#pragma pack(push,1)
+
+        typedef struct {
+            uint8_t  jump[3];
+            uint8_t  oem[8];
+            uint16_t bytes_per_sector;
+            uint8_t  sectors_per_cluster;
+            uint16_t reserved_sector_count;
+            uint8_t  num_fats;
+            uint16_t root_entry_count;
+            uint16_t total_sectors_16;
+            uint8_t  media;
+            uint16_t fat_size_16;
+            uint16_t sectors_per_track;
+            uint16_t num_heads;
+            uint32_t hidden_sectors;
+            uint32_t total_sectors_32;
+
+            uint32_t fat_size_32;
+            uint16_t ext_flags;
+            uint16_t fs_version;
+            uint32_t root_cluster;
+            uint16_t fs_info;
+            uint16_t backup_boot_sector;
+            uint8_t  reserved[12];
+        } bpb_t;
+
+
+        typedef struct {
+            enum : uint32_t {
+                SIG1 = 0x41615252,
+                SIG2 = 0x61417272,
+                SIG3 = 0xaa550000
+            };
+
+            uint32_t lead_sig;        /* 0x41615252 SIG1 */
+            uint8_t  reserved1[480];
+            uint32_t struct_sig;      /* 0x61417272 SIG2 */
+            uint32_t free_count;
+            uint32_t next_free;
+            uint8_t  reserved2[12];
+            uint32_t trail_sig;       /* 0xAA550000 SIG3 */
+        } fsinfo_t;
+
+
+        typedef struct {
+            uint8_t  name[11];
+            enum DirEntAttr attr;
+            uint8_t  nt_reserved;
+            uint8_t  creation_time_tenth;
+            uint16_t creation_time;
+            uint16_t creation_date;
+            uint16_t last_access_date;
+            uint16_t first_cluster_hi;
+            uint16_t write_time;
+            uint16_t write_date;
+            uint16_t first_cluster_lo;
+            uint32_t file_size;
+        } dirent_t;
+
+#pragma pack(pop)
     };
 
     // Misc utility functions
 
     // Returns pointer to last component of path
     static const char* basename(const char* path);
-
-private:
-
-    // Disk structures
-
-#pragma pack(push,1)
-
-    typedef struct {
-        uint8_t  jump[3];
-        uint8_t  oem[8];
-        uint16_t bytes_per_sector;
-        uint8_t  sectors_per_cluster;
-        uint16_t reserved_sector_count;
-        uint8_t  num_fats;
-        uint16_t root_entry_count;
-        uint16_t total_sectors_16;
-        uint8_t  media;
-        uint16_t fat_size_16;
-        uint16_t sectors_per_track;
-        uint16_t num_heads;
-        uint32_t hidden_sectors;
-        uint32_t total_sectors_32;
-
-        uint32_t fat_size_32;
-        uint16_t ext_flags;
-        uint16_t fs_version;
-        uint32_t root_cluster;
-        uint16_t fs_info;
-        uint16_t backup_boot_sector;
-        uint8_t  reserved[12];
-    } bpb_t;
-
-
-    typedef struct {
-        enum : uint32_t {
-            SIG1 = 0x41615252,
-            SIG2 = 0x61417272,
-            SIG3 = 0xaa550000
-        };
-
-        uint32_t lead_sig;        /* 0x41615252 SIG1 */
-        uint8_t  reserved1[480];
-        uint32_t struct_sig;      /* 0x61417272 SIG2 */
-        uint32_t free_count;
-        uint32_t next_free;
-        uint8_t  reserved2[12];
-        uint32_t trail_sig;       /* 0xAA550000 SIG3 */
-    } fsinfo_t;
-
-
-    typedef struct {
-        uint8_t  name[11];
-        enum DirEntAttr attr;
-        uint8_t  nt_reserved;
-        uint8_t  creation_time_tenth;
-        uint16_t creation_time;
-        uint16_t creation_date;
-        uint16_t last_access_date;
-        uint16_t first_cluster_hi;
-        uint16_t write_time;
-        uint16_t write_date;
-        uint16_t first_cluster_lo;
-        uint32_t file_size;
-    } dirent_t;
-
-#pragma pack(pop)
-
     static int make_sfn(const char *name, uint8_t out[11]);
-};
+
+    template <typename T1, typename T2>
+    T1 min(const T1& a, const T2& b) {
+        return a < (T1)b ? a : (T1)b;
+    }
+
+}; // ns Fat32
