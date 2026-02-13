@@ -175,10 +175,8 @@ namespace Fat32 {
         int fat_recompute_free_clusters(uint32_t* free_count, uint32_t* next_free);
         int fat_cluster_at(uint32_t start_cluster, uint32_t index, uint32_t* cluster); // FAT Walk
 
-        int cluster_for_offset(uint32_t first_cluster,
-                               uint32_t offset,
-                               uint32_t *out_cluster,
-                               uint32_t *cluster_index);
+        int cluster_for_offset(uint32_t first_cluster, uint32_t offset,
+                               uint32_t *out_cluster, uint32_t *cluster_index);
 
         int dir_load_volume_label_from_root();
         int dir_find(uint32_t cluster, const char *name, File *file);

@@ -13,3 +13,9 @@ eviction semantics and optional write-through (which I intend to use).
 
 If compiling with `-ffunction-sections` and `-fdata-sections`, then if linking with `-Wl,--gc-sections` the linker
 will omit all unused functions, so if you don't use truncate() for example you don't have to include the code for it.
+
+It only supports 8.3 short filenames (SFN).
+
+There is currently no locking and it's not MT-safe.
+
+Each volume should only be mounted in a single file system.
