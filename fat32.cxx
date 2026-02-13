@@ -42,6 +42,7 @@ static const char* error_strings[] = {
     [DIRECTORY_FULL]          = "Directory full",
     [NEGATIVE_SEEK]           = "Seek to negative position",
     [DIR_NOT_EMPTY]           = "Directory not empty",
+    [BDEV_FLUSH_ERR]          = "Block device write error during flush",
 };
 
 
@@ -359,6 +360,11 @@ int FileSys::sync()
         return -1;
 
     _fsinfo_dirty = false;
+
+    // Flush any cache
+    if (_bdev.flush()) 
+        return with_error(Error::BDEV_FLUSH_ERR);
+
     return success();
 }
 

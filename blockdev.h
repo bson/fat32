@@ -10,4 +10,8 @@ public:
     virtual int write_blocks(uint32_t lba,
                              uint32_t count,
                              const void *buffer) = 0;
+
+    virtual int flush() = 0;
+
+    virtual uint32_t sector_size() const = 0;
 };

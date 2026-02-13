@@ -11,6 +11,7 @@
 
 #include "blockdev.h"
 #include "fat32.h"
+#include "cache.h"
 
 /*
  * dd if=/dev/zero of=test.img bs=1M count=16
@@ -70,6 +71,10 @@ public:
         ::fsync(fd);
         return 0;
     }
+
+    int flush() { return 0; }
+
+    uint32_t sector_size() const { return SECTOR_SIZE; }
 };
 
 
@@ -469,6 +474,7 @@ void test_cross_directory_rename_dest_exists(Fat32::FileSys* fs)
 int main(void)
 {
     PosixBlockDev bdev;
+    CacheBlockDev bcache(bdev, true);
 
     assert(system("dd if=/dev/zero of=test.img bs=1M count=16 && "
                   "mkfs.vfat -F 32 -n \"FAT32 Test\" " TEST_IMAGE) == 0);
@@ -477,7 +483,7 @@ int main(void)
     if (bdev.fd < 0)
         die("open test image");
 
-    Fat32::FileSys fs(bdev);
+    Fat32::FileSys fs(bcache);
 
     test_mount(&fs);
     test_open_nonexistent(&fs);

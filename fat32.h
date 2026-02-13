@@ -41,6 +41,7 @@ namespace Fat32 {
         DIRECTORY_FULL            = 8, // No free entry in directory
         NEGATIVE_SEEK             = 9, // Seek to negative position
         DIR_NOT_EMPTY             =10, // Directory not empty
+        BDEV_FLUSH_ERR            =11, // Block device flush error
         NUM_ERRORS
     };
 
