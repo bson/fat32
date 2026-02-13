@@ -26,3 +26,7 @@ example, when flushing large amounts of data that has been collected
 and then never using it again this would otherwise cause the entire
 sector cache to be evicted.  The flag would signify that the caller
 isn't expected to touch this data again anytime soom, if ever.
+
+Add a consistency check on startup and refuse to mount if fsck is
+needed.  Add fsck?  It'll be big and slow, but if not wanted could
+simply not be used.

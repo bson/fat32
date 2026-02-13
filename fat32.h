@@ -198,6 +198,7 @@ namespace Fat32 {
 
 #pragma pack(push,1)
 
+        // BIOS parameter block (FAT master record)
         typedef struct {
             uint8_t  jump[3];
             uint8_t  oem[8];
