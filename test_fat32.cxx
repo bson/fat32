@@ -72,7 +72,7 @@ public:
         return 0;
     }
 
-    int flush() { return 0; }
+    int flush() { ::fsync(fd); return 0; }
 
     uint32_t sector_size() const { return SECTOR_SIZE; }
 };
