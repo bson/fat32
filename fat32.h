@@ -5,7 +5,7 @@
 
 namespace Fat32 {
 
-    enum : uint16_t { SECTOR_SIZE = 512 };
+    enum : uint16_t { MAX_SECTOR_SIZE = 512 };
     enum : uint32_t { EOC = 0x0ffffff8 };
 
     enum DirentAttr : uint8_t {
@@ -32,7 +32,7 @@ namespace Fat32 {
 
         // Single sector buffer.
         uint32_t _sec_lba;          // Sector currently buffered
-        uint8_t  _sector[SECTOR_SIZE];
+        uint8_t  _sector[MAX_SECTOR_SIZE];
 
         uint32_t _fat_start_lba;
         uint32_t _data_start_lba;

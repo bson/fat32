@@ -65,8 +65,8 @@ uint32_t FileSys::cluster_to_lba(uint32_t cluster)
 int FileSys::fat_get(uint32_t cluster, uint32_t *val)
 {
     uint32_t off = cluster * 4;
-    uint32_t lba = _fat_start_lba + (off / SECTOR_SIZE);
-    uint32_t pos = off % SECTOR_SIZE;
+    uint32_t lba = _fat_start_lba + (off / _bytes_per_sector);
+    uint32_t pos = off % _bytes_per_sector;
 
     uint8_t* sector;
     if (load_sector(lba, &sector))
@@ -84,8 +84,8 @@ int FileSys::fat_set_single(uint32_t cluster,
     const uint32_t off = cluster * 4;
     const uint32_t base = _fat_start_lba + fat_index * _sectors_per_fat;
 
-    const uint32_t lba = base + (off / SECTOR_SIZE);
-    const uint32_t pos = off % SECTOR_SIZE;
+    const uint32_t lba = base + (off / _bytes_per_sector);
+    const uint32_t pos = off % _bytes_per_sector;
 
     uint8_t* sector;
     if (load_sector(lba, &sector))
@@ -211,7 +211,7 @@ int FileSys::dir_load_volume_label_from_root()
             if (load_sector(lba + s, (uint8_t**)&ent))
                 return -1;
 
-            for (int i = 0; i < SECTOR_SIZE / sizeof(*ent); i++) {
+            for (int i = 0; i < _bytes_per_sector / sizeof(*ent); i++) {
                 if (ent[i].name[0] == 0x00)
                     return -1;
 
@@ -250,6 +250,9 @@ int FileSys::mount()
     _sectors_per_fat    = bpb->fat_size_32;
     _fat_count          = bpb->num_fats;
     _root_cluster       = bpb->root_cluster;
+
+    if (_bytes_per_sector > MAX_SECTOR_SIZE)
+        return -1;
 
     _fat_start_lba  = _reserved_sectors;
     _data_start_lba = _reserved_sectors + _fat_count * _sectors_per_fat;
@@ -379,7 +382,7 @@ int FileSys::dir_find(uint32_t cluster,
 
             dirent_t *ent = (dirent_t*)sector;
 
-            for (int i = 0; i < SECTOR_SIZE / sizeof(*ent); i++)
+            for (int i = 0; i < _bytes_per_sector / sizeof(*ent); i++)
             {
                 if (ent[i].name[0] == 0x00)
                     return -1;
@@ -471,7 +474,7 @@ int FileSys::dir_find_free_slot(uint32_t dir_cluster,
 
             dirent_t *ent = (dirent_t*)sector;
 
-            for (int i = 0; i < SECTOR_SIZE / sizeof(*ent); i++) {
+            for (int i = 0; i < _bytes_per_sector / sizeof(*ent); i++) {
                 if (ent[i].name[0] == 0x00
                     || ent[i].name[0] == 0xe5) {
                     *out_lba = lba + s;
@@ -494,7 +497,7 @@ int FileSys::cluster_for_offset(uint32_t first_cluster,
                                 uint32_t *out_cluster,
                                 uint32_t *cluster_index) 
 {
-    uint32_t cluster_size = _sectors_per_cluster * SECTOR_SIZE;
+    uint32_t cluster_size = _sectors_per_cluster * _bytes_per_sector;
     uint32_t index = offset / cluster_size;
     uint32_t cluster = first_cluster;
 
@@ -601,7 +604,7 @@ int FileSys::File::read(void *buffer, size_t len)
     uint32_t remaining = len;
     uint32_t total_read = 0;
 
-    const uint32_t cluster_size = _fs->_sectors_per_cluster * SECTOR_SIZE;
+    const uint32_t cluster_size = _fs->_sectors_per_cluster * _fs->_bytes_per_sector;
 
     while (remaining > 0) {
         uint32_t cluster;
@@ -611,14 +614,14 @@ int FileSys::File::read(void *buffer, size_t len)
             return -1;
 
         const uint32_t cluster_offset = _file_pos % cluster_size;
-        const uint32_t lba = _fs->cluster_to_lba(cluster) + (cluster_offset / SECTOR_SIZE);
+        const uint32_t lba = _fs->cluster_to_lba(cluster) + (cluster_offset / _fs->_bytes_per_sector);
 
         uint8_t* sector;
         if (_fs->load_sector(lba, &sector))
             return -1;
 
-        const uint32_t sector_offset = cluster_offset % SECTOR_SIZE;
-        const uint32_t to_copy = min(SECTOR_SIZE - sector_offset, remaining);
+        const uint32_t sector_offset = cluster_offset % _fs->_bytes_per_sector;
+        const uint32_t to_copy = min(_fs->_bytes_per_sector - sector_offset, remaining);
         ::memcpy(out, sector + sector_offset, to_copy);
 
         out += to_copy;
@@ -638,7 +641,7 @@ int FileSys::File::write(const void *buffer, size_t len)
     uint32_t remaining = len;
     uint32_t total_written = 0;
 
-    const uint32_t cluster_size = _fs->_sectors_per_cluster * SECTOR_SIZE;
+    const uint32_t cluster_size = _fs->_sectors_per_cluster * _fs->_bytes_per_sector;
 
     while (remaining > 0) {
         const uint32_t needed_index = _file_pos / cluster_size;
@@ -648,14 +651,14 @@ int FileSys::File::write(const void *buffer, size_t len)
             return -1;
 
         const uint32_t cluster_offset = _file_pos % cluster_size;
-        const uint32_t lba = _fs->cluster_to_lba(cluster) + (cluster_offset / SECTOR_SIZE);
+        const uint32_t lba = _fs->cluster_to_lba(cluster) + (cluster_offset / _fs->_bytes_per_sector);
 
         uint8_t* sector;
         if (_fs->load_sector(lba, &sector))
             return -1;
 
-        const uint32_t sector_offset = cluster_offset % SECTOR_SIZE;
-        const uint32_t to_copy = min(SECTOR_SIZE - sector_offset, remaining);
+        const uint32_t sector_offset = cluster_offset % _fs->_bytes_per_sector;
+        const uint32_t to_copy = min(_fs->_bytes_per_sector - sector_offset, remaining);
 
         ::memcpy(sector + sector_offset, in, to_copy);
 
@@ -903,7 +906,7 @@ int FileSys::dir_is_empty(uint32_t cluster)
             if (load_sector(lba + s, (uint8_t**)&ent))
                 return -1;
 
-            for (int i = 0; i < SECTOR_SIZE / sizeof(*ent); i++) {
+            for (int i = 0; i < _bytes_per_sector / sizeof(*ent); i++) {
                 if (ent[i].name[0] == 0x00)
                     return 1; /* end */
 
@@ -955,7 +958,7 @@ int FileSys::mkdir(const char *path)
     /* Initialize new directory cluster */
     uint32_t lba = cluster_to_lba(new_cluster);
 
-    ::memset(_sector, 0, SECTOR_SIZE);
+    ::memset(_sector, 0, _bytes_per_sector);
 
     dirent_t *ent = (dirent_t*)_sector;
 

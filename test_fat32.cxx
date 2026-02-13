@@ -18,7 +18,7 @@
  */
 
 #define TEST_IMAGE "test.img"
-#define SECTOR_SIZE Fat32::SECTOR_SIZE
+#define SECTOR_SIZE 512
 
 /* ================= POSIX BLOCK DEVICE ================= */
 
@@ -108,7 +108,7 @@ void test_create_write_read_delete(Fat32::FileSys *fs)
     assert(fs->create(filename, &f) == 0);
 
     assert(f.write(data, strlen(data)) == (int)strlen(data));
-    f.close();
+    assert(f.close() == 0);
 
     assert(fs->open(filename, &f) == 0);
 
@@ -117,7 +117,7 @@ void test_create_write_read_delete(Fat32::FileSys *fs)
 
     assert(strncmp(buffer, data, strlen(data)) == 0);
 
-    f.close();
+    assert(f.close() == 0);
 
 //    assert(fs->unlink(filename) == 0);
 }
@@ -133,7 +133,7 @@ void test_multilevel_path(Fat32::FileSys *fs)
 
     if (fs->open("DIR1/FILE1.TXT", &f) == 0) {
         printf("  Found DIR1/FILE1.TXT\n");
-        f.close();
+        assert(f.close() == 0);
     } else {
         printf("  Skipping (directory not present)\n");
     }
@@ -163,7 +163,7 @@ void test_stat(Fat32::FileSys *fs)
     /* Write data */
     assert(fs->open(filename, &f) == 0);
     assert(f.write(data, strlen(data)) == (int)strlen(data));
-    f.close();
+    assert(f.close() == 0);
 
     /* Stat again */
     assert(fs->stat(filename, &st) == 0);
@@ -173,7 +173,7 @@ void test_stat(Fat32::FileSys *fs)
     /* Reopen and verify stat consistent */
     assert(fs->open(filename, &f) == 0);
     assert(f._file_size == st._size);
-    f.close();
+    assert(f.close() == 0);
 
     /* Delete */
     assert(fs->unlink(filename) == 0);
@@ -194,10 +194,10 @@ void test_dirops(Fat32::FileSys* fs)
     assert(fs->rmdir("DIR10") != 0);
 
 
-    fs->mkdir("DIR11");
+    assert(fs->mkdir("DIR11") == 0);
     Fat32::FileSys::File f;
-    fs->create("DIR11/FILE.TXT", &f);
-    f.close();
+    assert(fs->create("DIR11/FILE.TXT", &f) == 0);
+    assert(f.close() == 0);
     assert(fs->rmdir("DIR11") != 0);
 
     printf("  Fat32::mkdir, Fat32::rmdir passed\n");
@@ -229,7 +229,7 @@ void test_basic_write_read(Fat32::FileSys* fs)
     assert(f.read(buf, sizeof(buf)) == (int)strlen(data));
     assert(strcmp(buf, data) == 0);
     
-    f.close();
+    assert(f.close() == 0);
 }
 
 
@@ -251,7 +251,7 @@ void test_overwrite_middle(Fat32::FileSys* fs)
 
     assert(memcmp(buf, "abZZef", 6) == 0);
 
-    f.close();
+    assert(f.close() == 0);
 }
 
 
@@ -279,7 +279,7 @@ void test_seek_beyond_eof_write(Fat32::FileSys* fs)
     assert(buf[2] == 'c');
     assert(buf[10] == 'X');
 
-    f.close();
+    assert(f.close() == 0);
 }
 
 
@@ -299,7 +299,7 @@ void test_truncate_shrink(Fat32::FileSys* fs)
     assert(f.read(buf, 16) == 4);
     assert(memcmp(buf, "0123", 4) == 0);
 
-    f.close();
+    assert(f.close() == 0);
 }
 
 
@@ -320,7 +320,7 @@ void test_truncate_grow(Fat32::FileSys* fs)
 
     assert(memcmp(buf, "abc", 3) == 0);
 
-    f.close();
+    assert(f.close() == 0);
 }
 
 
@@ -339,7 +339,7 @@ void test_truncate_zero(Fat32::FileSys* fs)
     assert(fs->stat(name, &st) == 0);
     assert(st._size == 0);
 
-    f.close();
+    assert(f.close() == 0);
 }
 
 
