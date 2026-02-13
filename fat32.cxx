@@ -92,7 +92,7 @@ int FileSys::fat_set_single(uint32_t cluster,
         return -1;
 
     uint32_t *entry = (uint32_t*)&sector[pos];
-    *entry = (*entry & 0xf0000000) | (val & 0x0fffffff); // XXX make symbolic
+    *entry = (*entry & 0xf0000000) | (val & 0x0fffffff); // XXX make symbolic?
 
     if (store_sector(lba))
          return -1;
@@ -219,7 +219,7 @@ int FileSys::dir_load_volume_label_from_root()
                     continue;
 
                 if (ent[i].attr == DirentAttr::VOLUME_ID) {
-                    memcpy(_volume_label, ent[i].name, 11);
+                    ::memcpy(_volume_label, ent[i].name, 11);
                     _volume_label[11] = 0;
 
                     for (int end = 10; end >= 0 && _volume_label[end] == ' '; --end)
@@ -335,7 +335,7 @@ int FileSys::checkpoint()
 // * static
 int Fat32::make_sfn(const char *name, uint8_t out[11])
 {
-    memset(out, ' ', 11);
+    ::memset(out, ' ', 11);
 
     const char *dot = strchr(name, '.');
     const int base_len = dot ? (dot - name) : strlen(name);
@@ -344,16 +344,16 @@ int Fat32::make_sfn(const char *name, uint8_t out[11])
         return -1;
 
     for (int i = 0; i < base_len; i++)
-        out[i] = toupper(name[i]);
+        out[i] = ::toupper(name[i]);
 
     if (dot) {
-        const int ext_len = strlen(dot + 1);
+        const int ext_len = ::strlen(dot + 1);
         if (ext_len > 3)
             return -1;
 
         for (int i = 0; i < ext_len; i++)
             out[8 + i] =
-                toupper(dot[1 + i]);
+                ::toupper(dot[1 + i]);
     }
 
     return 0;
@@ -387,7 +387,7 @@ int FileSys::dir_find(uint32_t cluster,
                     continue;
 
                 if (!(ent[i].attr & DirentAttr::LFN)) {
-                    if (!memcmp(sname, ent[i].name, sizeof sname)) {
+                    if (!::memcmp(sname, ent[i].name, sizeof sname)) {
 
                         file->_first_cluster =
                             ((uint32_t)ent[i].first_cluster_hi << 16)
@@ -417,7 +417,7 @@ int FileSys::dir_find(uint32_t cluster,
 // For a path, find the parent dir cluster.  Path is clobbered.
 int FileSys::dir_find_parent(char* path_buffer, bool tail, uint32_t* cluster)
 {
-    char *const slash = strrchr(path_buffer, '/');
+    char *const slash = ::strrchr(path_buffer, '/');
     uint32_t c;
     if (!slash) {
         if (tail) {
@@ -493,7 +493,7 @@ int FileSys::open(const char *path, FileSys::File *file)
     uint32_t dir_cluster;
 
     char tmp[256];
-    strncpy(tmp, path, sizeof tmp);
+    ::strncpy(tmp, path, sizeof tmp);
     tmp[255] = 0;
     if (dir_find_parent(tmp, true, &dir_cluster))
         return -1;
@@ -520,7 +520,7 @@ int FileSys::File::read(void *buffer, size_t len)
                 return -1;
 
             const size_t copy = min<size_t>(remaining, SECTOR_SIZE);
-            memcpy(out, sector, copy);
+            ::memcpy(out, sector, copy);
 
             out += copy;
             remaining -= copy;
@@ -546,10 +546,10 @@ int FileSys::File::write(const void *buffer, size_t len)
         const uint32_t lba = _fs->cluster_to_lba(_current_cluster);
 
         for (uint32_t s = 0; s < _fs->_sectors_per_cluster && remaining; s++) {
-            memset(_fs->_sector, 0, SECTOR_SIZE);
+            ::memset(_fs->_sector, 0, SECTOR_SIZE);
 
             const size_t copy = min<size_t>(remaining, SECTOR_SIZE);
-            memcpy(_fs->_sector, in, copy);
+            ::memcpy(_fs->_sector, in, copy);
             if (_fs->store_sector(lba + s))
                 return -1;
 
@@ -629,7 +629,7 @@ int FileSys::create(const char *path, FileSys::File *file)
 
     uint32_t dir_cluster;
     char tmp[256];
-    strncpy(tmp, path, sizeof tmp);
+    ::strncpy(tmp, path, sizeof tmp);
     tmp[255] = 0;
     if (dir_find_parent(tmp, true, &dir_cluster))
         return -1;
@@ -649,7 +649,7 @@ int FileSys::create(const char *path, FileSys::File *file)
 
     dirent_t *ent = (dirent_t*)&sector[off];
 
-    memset(ent, 0, sizeof(*ent));
+    ::memset(ent, 0, sizeof(*ent));
 
     if (make_sfn(basename(path), ent->name))
         return -1;
@@ -704,11 +704,9 @@ int FileSys::dir_is_empty(uint32_t cluster)
         uint32_t lba = cluster_to_lba(cluster);
 
         for (uint32_t s = 0; s < _sectors_per_cluster; s++) {
-            uint8_t* sector;
-            if (load_sector(lba + s, &sector))
+            dirent_t* ent;
+            if (load_sector(lba + s, (uint8_t**)&ent))
                 return -1;
-
-            dirent_t *ent = (dirent_t*)sector;
 
             for (int i = 0; i < SECTOR_SIZE / sizeof(*ent); i++) {
                 if (ent[i].name[0] == 0x00)
@@ -719,8 +717,8 @@ int FileSys::dir_is_empty(uint32_t cluster)
 
                 /* Skip "." and ".." */
                 if ((ent[i].attr & DirentAttr::DIRECTORY) &&
-                    (!memcmp(ent[i].name, dot, 11)
-                     || !memcmp(ent[i].name, dotdot, 11)))
+                    (!::memcmp(ent[i].name, dot, 11)
+                     || !::memcmp(ent[i].name, dotdot, 11)))
                     continue;
 
                 return 0; /* not empty */
@@ -745,7 +743,7 @@ int FileSys::mkdir(const char *path)
 
     uint32_t parent_cluster;
     char tmp[256];
-    strncpy(tmp, path, sizeof tmp);
+    ::strncpy(tmp, path, sizeof tmp);
     tmp[255] = 0;
     if (dir_find_parent(tmp, true, &parent_cluster))
         return -1;
@@ -762,7 +760,7 @@ int FileSys::mkdir(const char *path)
     /* Initialize new directory cluster */
     uint32_t lba = cluster_to_lba(new_cluster);
 
-    memset(_sector, 0, SECTOR_SIZE);
+    ::memset(_sector, 0, SECTOR_SIZE);
 
     dirent_t *ent = (dirent_t*)_sector;
 
@@ -793,7 +791,7 @@ int FileSys::mkdir(const char *path)
 
     dirent_t *slot = (dirent_t*)&sector[slot_off];
 
-    memset(slot, 0, sizeof(*slot));
+    ::memset(slot, 0, sizeof(*slot));
 
     if (make_sfn(basename(path), slot->name))
         return -1;
@@ -834,17 +832,14 @@ int FileSys::rmdir(const char *path)
 
     ent->name[0] = 0xe5;
 
-    if (store_sector(f._dir_lba))
-        return -1;
-
-    return 0;
+    return store_sector(f._dir_lba);
 }
 
 
 // * static
 const char* Fat32::basename(const char* path) 
 {
-    const char* slash = strrchr(path, '/');
+    const char* slash = ::strrchr(path, '/');
 
     if (slash)
         return slash+1;
