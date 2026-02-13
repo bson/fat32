@@ -218,6 +218,9 @@ int main(void)
 {
     PosixBlockDev bdev;
 
+    assert(system("dd if=/dev/zero of=test.img bs=1M count=16 && "
+                  "mkfs.vfat -F 32 -n \"FAT32 Test\" " TEST_IMAGE) == 0);
+
     bdev.fd = open(TEST_IMAGE, O_RDWR);
     if (bdev.fd < 0)
         die("open test image");

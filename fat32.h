@@ -9,7 +9,7 @@ namespace Fat32 {
     enum : uint32_t { EOC = 0x0ffffff8 };
 
     enum DirentAttr : uint8_t {
-        NONE      = 0x00,           // Unused entry
+        NONE      = 0x00,
         READ_ONLY = 0x01,
         HIDDEN    = 0x02,
         SYSTEM    = 0x04,
