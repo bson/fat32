@@ -429,6 +429,41 @@ void test_cross_directory_rename(Fat32::FileSys* fs)
     printf("  cross-directory rename passed\n");
 }
 
+
+void test_cross_directory_rename_dest_exists(Fat32::FileSys* fs)
+{
+    Fat32::FileSys::File f;
+
+    const char *dir1 = "dirC";
+    const char *dir2 = "dirD";
+    const char *oldpath = "dirC/file.txt";
+    const char *newpath = "dirD/file.txt";
+
+    printf("TEST: cross-directory rename fails if dest exists\n");
+
+    fs->unlink(oldpath);
+    fs->unlink(newpath);
+    fs->rmdir(dir1);
+    fs->rmdir(dir2);
+
+    assert(fs->mkdir(dir1) == 0);
+    assert(fs->mkdir(dir2) == 0);
+
+    /* Create source */
+    assert(fs->create(oldpath, &f) == 0);
+    assert(f.close() == 0);
+
+    /* Create destination */
+    assert(fs->create(newpath, &f) == 0);
+    assert(f.close() == 0);
+
+    /* Rename must fail */
+    assert(fs->rename(oldpath, newpath) != 0 && fs->last_error() == Fat32::Error::ALREADY_EXISTS);
+
+    printf("  rename-dest-exists passed\n");
+}
+
+
 /* ================= MAIN ================= */
 
 int main(void)
@@ -452,7 +487,7 @@ int main(void)
     test_dirops(&fs);
     test_rename(&fs);
     test_cross_directory_rename(&fs);
-
+    test_cross_directory_rename_dest_exists(&fs);
     test_basic_write_read(&fs);
     test_overwrite_middle(&fs);
     test_seek_beyond_eof_write(&fs);
