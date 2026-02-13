@@ -33,6 +33,8 @@ public:
         : fd(-1), numloads(0), numstores(0)
     { }
 
+    int init() { return 0; }
+
 
     int read_blocks(uint32_t lba, uint32_t count, void *buffer)
     {

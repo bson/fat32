@@ -43,6 +43,7 @@ static const char* error_strings[] = {
     [NEGATIVE_SEEK]           = "Seek to negative position",
     [DIR_NOT_EMPTY]           = "Directory not empty",
     [BDEV_FLUSH_ERR]          = "Block device write error during flush",
+    [BDEV_INIT_ERR]           = "Block device failed to initialize",
 };
 
 
@@ -268,6 +269,9 @@ no_label:
 
 int FileSys::mount()
 {
+    if (_bdev.init())
+        return with_error(Error::BDEV_INIT_ERR);
+
     bpb_t *bpb;
     if (load_sector(0, (uint8_t**)&bpb))
         return -1;

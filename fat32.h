@@ -42,6 +42,7 @@ namespace Fat32 {
         NEGATIVE_SEEK             = 9, // Seek to negative position
         DIR_NOT_EMPTY             =10, // Directory not empty
         BDEV_FLUSH_ERR            =11, // Block device flush error
+        BDEV_INIT_ERR             =12, // Block device init failed (e.g. bad partition)
         NUM_ERRORS
     };
 

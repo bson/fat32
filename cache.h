@@ -50,6 +50,7 @@ public:
        _nwrite_hits = 0;
     }
 
+    int init() { return _bdev.init(); }
     int read_blocks(uint32_t lba, uint32_t count, void *buffer);
     int write_blocks(uint32_t lba, uint32_t count, const void *buffer);
     int flush();
