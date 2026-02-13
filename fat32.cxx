@@ -668,7 +668,7 @@ int Fat32::FileSys::create(const char *path, Fat32::FileSys::File *file)
 }
 
 
-int Fat32::FileSys::stat(const char *path, Fat32::Stat *st)
+int Fat32::FileSys::stat(const char *path, Fat32::FileSys::Stat *st)
 {
     File f;
 

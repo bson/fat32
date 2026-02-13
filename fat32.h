@@ -25,8 +25,6 @@ public:
     };
 
 
-    class Stat;
-
     class FileSys {
         BlockDev& _bdev;
 
@@ -55,6 +53,7 @@ public:
 
     public:
         class File;
+        class Stat;
 
         FileSys(BlockDev& bdev)
             : _bdev(bdev), _sec_lba(~uint32_t(0))
@@ -102,6 +101,14 @@ public:
         };
 
 
+        class Stat {
+        public:
+            uint32_t _size;
+            uint32_t _first_cluster;
+            DirEntAttr _attributes;
+        };
+
+
     protected:
         friend class Fat32;
         friend class File;
@@ -126,15 +133,6 @@ public:
         int dir_is_empty(uint32_t cluster);
 
     };
-
-
-    class Stat {
-    public:
-        uint32_t _size;
-        uint32_t _first_cluster;
-        DirEntAttr _attributes;
-    };
-
 
     // Misc utility functions
 

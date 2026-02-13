@@ -146,7 +146,7 @@ static void test_stat(Fat32::FileSys *fs)
     const char *filename = "statfile.txt";
     const char *data = "Stat test data";
     Fat32::FileSys::File f;
-    Fat32::Stat st;
+    Fat32::FileSys::Stat st;
 
     /* Ensure file does not exist */
     fs->unlink(filename);
