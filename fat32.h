@@ -97,6 +97,10 @@ namespace Fat32 {
             uint32_t _dir_lba;
             uint32_t _dir_offset;
 
+            // Test if anything more can be read
+            int available() const { return _file_size - _file_pos; }
+            bool eof() const { return available() <= 0; }
+
             // These return bytes read/written, or -1 on error
             int read(void *buffer, size_t len);
             int write(const void *buffer, size_t len);
