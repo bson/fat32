@@ -5,6 +5,9 @@
 
 namespace Fat32 {
 
+    // In reality only 512-byte sector sizes are commonly used by
+    // storage devices.  When a FAT32 FS is created the sector size
+    // becomes part of its formatting.
     enum : uint16_t { MAX_SECTOR_SIZE = 512 };
     enum : uint32_t { EOC = 0x0ffffff8 };
 
@@ -26,6 +29,20 @@ namespace Fat32 {
         END = 2
     };
 
+    enum Error : uint16_t {
+        SUCCESS                   = 0,
+        BDEV_READ_ERR             = 1, // Block device read error
+        BDEV_WRITE_ERR            = 2, // Block device write error
+        FAT_FULL                  = 3, // FAT full, unable to allocate cluster
+        NO_VOLUME_LABEL           = 4, // Volume doesn't have a label
+        UNSUPPORTED_SECTOR_SIZE   = 5, // Unable to mount due to unsupported sector size
+        MALFORMED_FILENAME        = 6, // Malformed 8.3 SFN
+        FILE_NOT_FOUND            = 7, // File or path component not found
+        DIRECTORY_FULL            = 8, // No free entry in directory
+        NEGATIVE_SEEK             = 9, // Seek to negative position
+        ALREADY_EXISTS            = 10, // Already exists
+        NUM_ERRORS
+    };
 
     class FileSys {
         BlockDev& _bdev;
@@ -52,6 +69,8 @@ namespace Fat32 {
         bool     _fsinfo_dirty; // fsinfo needs to be rewritten
 
         char     _volume_label[12];
+
+        Error    _last_error;
 
         FileSys() = delete;
         FileSys(FileSys&) = delete;
@@ -97,8 +116,9 @@ namespace Fat32 {
             uint32_t _dir_lba;
             uint32_t _dir_offset;
 
-            // Test if anything more can be read
-            int available() const { return _file_size - _file_pos; }
+            // Test if anything more can be read.  Available can be
+            // negative after a seek past EOF.
+            int32_t available() const { return int32_t(_file_size - _file_pos); }
             bool eof() const { return available() <= 0; }
 
             // These return bytes read/written, or -1 on error
@@ -111,9 +131,12 @@ namespace Fat32 {
             int close() { return sync(); }
             int sync();
 
+            Error last_error() const { return _fs->last_error(); }
+            const char* strerror(Error err) const { return _fs->strerror(err);  }
+
         private:
             // Make sure a specific cluster exists, extending the file if necessary
-            int ensure_cluster_index(uint32_t needed_index, uint32_t *out_cluster);
+            int ensure_cluster_index(uint32_t needed_index, uint32_t* out_cluster);
 
             // Update directory entry size field
             int update_dirent_size();
@@ -156,6 +179,17 @@ namespace Fat32 {
                                uint32_t *out_offset);
         int dir_find_parent(char* path_buffer, bool tail, uint32_t* cluster);
         int dir_is_empty(uint32_t cluster);
+
+        int make_sfn(const char *name, uint8_t out[11]);
+
+        Error last_error() const { return _last_error; }
+        int success() { _last_error = Error::SUCCESS; return 0; } // Good return
+        int with_error(Error err) {                               // Error return
+            if (_last_error == Error::SUCCESS)
+                _last_error = err;
+            return -1;
+        } 
+        const char* strerror(Error err) const;
 
         // Disk structures
 
@@ -226,7 +260,6 @@ namespace Fat32 {
 
     // Returns pointer to last component of path
     static const char* basename(const char* path);
-    static int make_sfn(const char *name, uint8_t out[11]);
 
     template <typename T1, typename T2>
     T1 min(const T1& a, const T2& b) {

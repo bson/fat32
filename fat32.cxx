@@ -30,29 +30,53 @@ using namespace Fat32;
 // Never causes another file to reference freed clusters.
 //
 
+static const char* error_strings[] = {
+    [SUCCESS]                 = "Success",
+    [BDEV_READ_ERR]           = "Block device read error",
+    [BDEV_WRITE_ERR]          = "Block device write error",
+    [FAT_FULL]                = "FAT full, unable to allocate cluster",
+    [NO_VOLUME_LABEL]         = "Volume doesn't have a label",
+    [UNSUPPORTED_SECTOR_SIZE] = "Unsupported sector size",
+    [MALFORMED_FILENAME]      = "Malformed filename",
+    [FILE_NOT_FOUND]          = "File or path component not found",
+    [DIRECTORY_FULL]          = "Directory full",
+    [NEGATIVE_SEEK]           = "Seek to negative position",
+    [ALREADY_EXISTS]          = "Already exists"
+};
+
+
+const char* FileSys::strerror(Error err) const
+{
+    if (err >= NUM_ERRORS)
+        return "Unknown error";
+
+    return error_strings[err];
+}
+
+
 int FileSys::load_sector(uint32_t lba, uint8_t** sector)
 {
     if (lba == _sec_lba) {
         *sector = _sector;
-        return 0;
+        return success();
     }
 
     if (_bdev.read_blocks(lba, 1, _sector))
-        return -1;
+        return with_error(Error::BDEV_READ_ERR);
 
     *sector = _sector;
     _sec_lba = lba;
-    return 0;
+    return success();
 }
 
 
 int FileSys::store_sector(uint32_t lba)
 {
     if (_bdev.write_blocks(lba, 1, _sector))
-        return -1;
+        return with_error(Error::BDEV_WRITE_ERR);
 
     _sec_lba = lba;
-    return 0;
+    return success();
 }
 
 
@@ -73,7 +97,7 @@ int FileSys::fat_get(uint32_t cluster, uint32_t *val)
         return -1;
 
     *val = (*(uint32_t*)&sector[pos]) & 0x0fffffff;  // XXX symbol
-    return 0;
+    return success();
 }
 
 
@@ -97,7 +121,7 @@ int FileSys::fat_set_single(uint32_t cluster,
     if (store_sector(lba))
          return -1;
 
-    return 0;
+    return success();
 }
 
 
@@ -106,7 +130,7 @@ int FileSys::fat_set(uint32_t cluster, uint32_t val)
     for (uint32_t i = 0; i < _fat_count; i++)
         if (fat_set_single(cluster, val, i))
             return -1;
-    return 0;
+    return success();
 }
 
 
@@ -136,7 +160,7 @@ int FileSys::fat_allocate(uint32_t *out)
                     _fsinfo_dirty = true;
                 }
 
-                return 0;
+                return success();
             }
         }
 
@@ -144,7 +168,7 @@ int FileSys::fat_allocate(uint32_t *out)
         start = 2;
     }
 
-    return -1; /* full */
+    return with_error(Error::FAT_FULL);
 }
 
 
@@ -171,7 +195,7 @@ int FileSys::fat_free_chain(uint32_t start)
         _fsinfo_dirty = true;
     }
 
-    return 0;
+    return success();
 }
 
 
@@ -196,7 +220,7 @@ int FileSys::fat_recompute_free_clusters(uint32_t* free_count, uint32_t* next_fr
     *free_count = free;
     *next_free = first ? first : 2;
 
-    return 0;
+    return success();
 }
 
 int FileSys::dir_load_volume_label_from_root()
@@ -213,7 +237,7 @@ int FileSys::dir_load_volume_label_from_root()
 
             for (int i = 0; i < _bytes_per_sector / sizeof(*ent); i++) {
                 if (ent[i].name[0] == 0x00)
-                    return -1;
+                    return with_error(Error::NO_VOLUME_LABEL);
 
                 if (ent[i].name[0] == 0xe5)
                     continue;
@@ -225,7 +249,7 @@ int FileSys::dir_load_volume_label_from_root()
                     for (int end = 10; end >= 0 && _volume_label[end] == ' '; --end)
                         _volume_label[end] = 0;
 
-                    return 0;
+                    return success();
                 }
             }
         }
@@ -234,7 +258,7 @@ int FileSys::dir_load_volume_label_from_root()
             return -1;
     }
 
-    return -1;
+    return with_error(Error::NO_VOLUME_LABEL);
 }
 
 
@@ -252,7 +276,7 @@ int FileSys::mount()
     _root_cluster       = bpb->root_cluster;
 
     if (_bytes_per_sector > MAX_SECTOR_SIZE)
-        return -1;
+        return with_error(Error::UNSUPPORTED_SECTOR_SIZE);
 
     _fat_start_lba  = _reserved_sectors;
     _data_start_lba = _reserved_sectors + _fat_count * _sectors_per_fat;
@@ -319,7 +343,7 @@ int FileSys::mount()
 int FileSys::checkpoint()
 {
     if (!_fsinfo_valid || !_fsinfo_dirty)
-        return 0;
+        return success();
 
     fsinfo_t *fsi;
     if (load_sector(_fsinfo_lba, (uint8_t**)&fsi))
@@ -332,20 +356,19 @@ int FileSys::checkpoint()
         return -1;
 
     _fsinfo_dirty = false;
-    return 0;
+    return success();
 }
 
 
-// * static
-int Fat32::make_sfn(const char *name, uint8_t out[11])
+int FileSys::make_sfn(const char *name, uint8_t out[11])
 {
     ::memset(out, ' ', 11);
 
-    const char *dot = strchr(name, '.');
-    const int base_len = dot ? (dot - name) : strlen(name);
+    const char *dot = ::strchr(name, '.');
+    const int base_len = dot ? (dot - name) : ::strlen(name);
 
     if (base_len < 1 || base_len > 8)
-        return -1;
+        return with_error(Error::MALFORMED_FILENAME);
 
     for (int i = 0; i < base_len; i++)
         out[i] = ::toupper(name[i]);
@@ -353,14 +376,13 @@ int Fat32::make_sfn(const char *name, uint8_t out[11])
     if (dot) {
         const int ext_len = ::strlen(dot + 1);
         if (ext_len > 3)
-            return -1;
+            return with_error(Error::MALFORMED_FILENAME);
 
         for (int i = 0; i < ext_len; i++)
-            out[8 + i] =
-                ::toupper(dot[1 + i]);
+            out[8 + i] = ::toupper(dot[1 + i]);
     }
 
-    return 0;
+    return success();
 }
 
 
@@ -382,10 +404,9 @@ int FileSys::dir_find(uint32_t cluster,
 
             dirent_t *ent = (dirent_t*)sector;
 
-            for (int i = 0; i < _bytes_per_sector / sizeof(*ent); i++)
-            {
+            for (int i = 0; i < _bytes_per_sector / sizeof(*ent); i++) {
                 if (ent[i].name[0] == 0x00)
-                    return -1;
+                    return with_error(Error::FILE_NOT_FOUND);
 
                 if (ent[i].name[0] == 0xe5)
                     continue;
@@ -404,7 +425,7 @@ int FileSys::dir_find(uint32_t cluster,
                         file->_dir_lba    = lba + s;
                         file->_dir_offset = i * sizeof(*ent);
                         file->_fs = this;
-                        return 0;
+                        return success();
                     }
                 }
             }
@@ -414,7 +435,7 @@ int FileSys::dir_find(uint32_t cluster,
             return -1;
     }
 
-    return -1;
+    return with_error(Error::FILE_NOT_FOUND);
 }
 
 
@@ -426,7 +447,7 @@ int FileSys::dir_find_parent(char* path_buffer, bool tail, uint32_t* cluster)
     if (!slash) {
         if (tail) {
             *cluster = _root_cluster;
-            return 0;
+            return success();
         }
 
         File f;
@@ -435,7 +456,7 @@ int FileSys::dir_find_parent(char* path_buffer, bool tail, uint32_t* cluster)
 
         *cluster = f._first_cluster;
 
-        return 0;
+        return success();
     }
 
     const char* name = slash + 1;
@@ -456,7 +477,7 @@ int FileSys::dir_find_parent(char* path_buffer, bool tail, uint32_t* cluster)
 
     *cluster = f._first_cluster;
 
-    return 0;
+    return success();
 }
 
 
@@ -479,7 +500,7 @@ int FileSys::dir_find_free_slot(uint32_t dir_cluster,
                     || ent[i].name[0] == 0xe5) {
                     *out_lba = lba + s;
                     *out_offset = i * sizeof(*ent);
-                    return 0;
+                    return success();
                 }
             }
         }
@@ -511,7 +532,7 @@ int FileSys::cluster_for_offset(uint32_t first_cluster,
 
     *out_cluster = cluster;
     *cluster_index = index;
-    return 0;
+    return success();
 }
 
 
@@ -542,7 +563,7 @@ int FileSys::File::ensure_cluster_index(uint32_t needed_index, uint32_t *out_clu
     }
 
     *out_cluster = cluster;
-    return 0;
+    return _fs->success();
 }
 
 
@@ -588,14 +609,14 @@ int FileSys::fat_cluster_at(uint32_t start_cluster, uint32_t index, uint32_t* cl
             return -1;
     
     *cluster = c;
-    return 0;
+    return success();
 }
 
 
 int FileSys::File::read(void *buffer, size_t len) 
 {
     if (_file_pos >= _file_size)
-        return 0;
+        return _fs->success();
 
     if (_file_pos + len > _file_size)
         len = _file_size - _file_pos;
@@ -614,7 +635,8 @@ int FileSys::File::read(void *buffer, size_t len)
             return -1;
 
         const uint32_t cluster_offset = _file_pos % cluster_size;
-        const uint32_t lba = _fs->cluster_to_lba(cluster) + (cluster_offset / _fs->_bytes_per_sector);
+        const uint32_t lba = _fs->cluster_to_lba(cluster)
+            + (cluster_offset / _fs->_bytes_per_sector);
 
         uint8_t* sector;
         if (_fs->load_sector(lba, &sector))
@@ -630,6 +652,7 @@ int FileSys::File::read(void *buffer, size_t len)
         _file_pos = min(_file_pos + to_copy, _file_size);
     }
 
+    (void)_fs->success();
     return total_read;
 }
 
@@ -651,7 +674,8 @@ int FileSys::File::write(const void *buffer, size_t len)
             return -1;
 
         const uint32_t cluster_offset = _file_pos % cluster_size;
-        const uint32_t lba = _fs->cluster_to_lba(cluster) + (cluster_offset / _fs->_bytes_per_sector);
+        const uint32_t lba = _fs->cluster_to_lba(cluster)
+            + (cluster_offset / _fs->_bytes_per_sector);
 
         uint8_t* sector;
         if (_fs->load_sector(lba, &sector))
@@ -680,6 +704,7 @@ int FileSys::File::write(const void *buffer, size_t len)
     if (update_dirent_size())
         return -1;
 #endif
+    (void)_fs->success();
     return total_written;
 }
 
@@ -689,7 +714,7 @@ int FileSys::File::truncate(uint32_t new_size)
 
     /* No-op */
     if (new_size == _file_size)
-        return 0;
+        return _fs->success();
 
     /* ---------------- SHRINK ---------------- */
     if (new_size < _file_size) {
@@ -709,9 +734,11 @@ int FileSys::File::truncate(uint32_t new_size)
                 return -1;
 
             if (next >= 2 && next < EOC)
-                _fs->fat_free_chain(next);
+                if (_fs->fat_free_chain(next))
+                    return -1;
 
-            _fs->fat_set(last_cluster, EOC);
+            if (_fs->fat_set(last_cluster, EOC))
+                return -1;
         }
 
         _file_size = new_size;
@@ -747,16 +774,20 @@ int FileSys::File::truncate(uint32_t new_size)
             if(_fs->fat_cluster_at(_first_cluster, current_clusters - 1, &last))
                 return -1;
 
-            _fs->fat_set(last, newc);
+            if (_fs->fat_set(last, newc))
+                return -1;
         }
 
-        _fs->fat_set(newc, EOC);
+        if (_fs->fat_set(newc, EOC))
+            return -1;
+
         ++current_clusters;
     }
 
     _file_size = new_size;
     return update_dirent_size();
 }
+
 
 int FileSys::File::lseek(int32_t offset, SeekOp whence)
 {
@@ -774,18 +805,14 @@ int FileSys::File::lseek(int32_t offset, SeekOp whence)
     case SeekOp::END:
         new_pos = _file_size + offset;
         break;
-
-    default:
-        return -1;
     }
 
     if ((int32_t)new_pos < 0)
-        return -1;
+        return _fs->with_error(Error::NEGATIVE_SEEK);
 
     _file_pos = new_pos;
-    return 0;
+    return _fs->success();
 }
-
 
 
 int FileSys::unlink(const char *path)
@@ -889,7 +916,7 @@ int FileSys::stat(const char *path, FileSys::Stat *st)
 
     st->_attributes = ent->attr;
 
-    return 0;
+    return success();
 }
 
 
@@ -907,8 +934,10 @@ int FileSys::dir_is_empty(uint32_t cluster)
                 return -1;
 
             for (int i = 0; i < _bytes_per_sector / sizeof(*ent); i++) {
-                if (ent[i].name[0] == 0x00)
+                if (ent[i].name[0] == 0x00) {
+                    success();
                     return 1; /* end */
+                }
 
                 if (ent[i].name[0] == 0xe5)
                     continue;
@@ -919,7 +948,7 @@ int FileSys::dir_is_empty(uint32_t cluster)
                      || !::memcmp(ent[i].name, dotdot, 11)))
                     continue;
 
-                return 0; /* not empty */
+                return success(); /* 0 - not empty */
             }
         }
 
@@ -927,6 +956,7 @@ int FileSys::dir_is_empty(uint32_t cluster)
             return -1;
     }
 
+    success();
     return 1;
 }
 
@@ -937,7 +967,7 @@ int FileSys::mkdir(const char *path)
 
     /* Fail if exists */
     if (open(path, &f) == 0)
-        return -1;
+        return with_error(Error::ALREADY_EXISTS);
 
     uint32_t parent_cluster;
     char tmp[256];
@@ -1002,7 +1032,7 @@ int FileSys::mkdir(const char *path)
     if (store_sector(slot_lba))
         return -1;
 
-    return 0;
+    return success();
 }
 
 
