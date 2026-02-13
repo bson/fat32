@@ -1,0 +1,4 @@
+*.o
+test_fat32
+test.img
+.gdb_history
