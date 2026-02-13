@@ -40,6 +40,7 @@ namespace Fat32 {
         FILE_NOT_FOUND            = 7, // File or path component not found
         DIRECTORY_FULL            = 8, // No free entry in directory
         NEGATIVE_SEEK             = 9, // Seek to negative position
+        DIR_NOT_EMPTY             =10, // Directory not empty
         NUM_ERRORS
     };
 
@@ -102,6 +103,11 @@ namespace Fat32 {
 
         const char* volume_label() const { return _volume_label; }
 
+        Error last_error() const { return _last_error; }
+        const char* strerror(Error err) const;
+
+
+        // Open files
 
         class File {
         public:
@@ -181,14 +187,12 @@ namespace Fat32 {
 
         int make_sfn(const char *name, uint8_t out[11]);
 
-        Error last_error() const { return _last_error; }
         int success() { _last_error = Error::SUCCESS; return 0; } // Good return
         int with_error(Error err) {                               // Error return
             if (_last_error == Error::SUCCESS)
                 _last_error = err;
             return -1;
         } 
-        const char* strerror(Error err) const;
 
         // Disk structures
 

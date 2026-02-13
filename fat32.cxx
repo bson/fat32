@@ -41,6 +41,7 @@ static const char* error_strings[] = {
     [FILE_NOT_FOUND]          = "File or path component not found",
     [DIRECTORY_FULL]          = "Directory full",
     [NEGATIVE_SEEK]           = "Seek to negative position",
+    [DIR_NOT_EMPTY]           = "Directory not empty",
 };
 
 
@@ -1107,7 +1108,7 @@ int FileSys::rmdir(const char *path)
 
     /* Check empty */
     if (dir_is_empty(f._first_cluster) != 1)
-        return -1;
+        return with_error(Error::DIR_NOT_EMPTY);
 
     /* Free cluster */
     if (fat_set(f._first_cluster, 0))

@@ -92,7 +92,7 @@ void test_open_nonexistent(Fat32::FileSys *fs)
 {
     printf("TEST: open nonexistent file\n");
     Fat32::FileSys::File f;
-    assert(fs->open("nope.txt", &f) != 0);
+    assert(fs->open("nope.txt", &f) != 0 && fs->last_error() == Fat32::Error::FILE_NOT_FOUND);
 }
 
 void test_create_write_read_delete(Fat32::FileSys *fs)
@@ -189,16 +189,16 @@ void test_dirops(Fat32::FileSys* fs)
     printf("TEST: Fat32::mkdir, Fat32::rmdir\n");
 
     assert(fs->mkdir("DIR10") == 0);
-    assert(fs->mkdir("DIR10") != 0);
+    assert(fs->mkdir("DIR10") != 0 && fs->last_error() == Fat32::Error::ALREADY_EXISTS);
     assert(fs->rmdir("DIR10") == 0);
-    assert(fs->rmdir("DIR10") != 0);
+    assert(fs->rmdir("DIR10") != 0 && fs->last_error() == Fat32::Error::FILE_NOT_FOUND);
 
 
     assert(fs->mkdir("DIR11") == 0);
     Fat32::FileSys::File f;
     assert(fs->create("DIR11/FILE.TXT", &f) == 0);
     assert(f.close() == 0);
-    assert(fs->rmdir("DIR11") != 0);
+    assert(fs->rmdir("DIR11") != 0  && fs->last_error() == Fat32::Error::DIR_NOT_EMPTY);
 
     printf("  Fat32::mkdir, Fat32::rmdir passed\n");
 }
@@ -342,6 +342,7 @@ void test_truncate_zero(Fat32::FileSys* fs)
     assert(f.close() == 0);
 }
 
+
 void test_rename(Fat32::FileSys* fs)
 {
     Fat32::FileSys::File f;
@@ -366,7 +367,7 @@ void test_rename(Fat32::FileSys* fs)
     assert(fs->rename(oldname, newname) == 0);
 
     /* Old must not exist */
-    assert(fs->stat(oldname, &st) != 0);
+    assert(fs->stat(oldname, &st) != 0 && fs->last_error() == Fat32::Error::FILE_NOT_FOUND);
 
     /* New must exist */
     assert(fs->stat(newname, &st) == 0);
@@ -381,6 +382,52 @@ void test_rename(Fat32::FileSys* fs)
     printf("  rename passed\n");
 }
 
+void test_cross_directory_rename(Fat32::FileSys* fs)
+{
+    Fat32::FileSys::File f;
+    Fat32::FileSys::Stat st;
+    char buf[64];
+
+    const char *dir1 = "dirA";
+    const char *dir2 = "dirB";
+    const char *oldpath = "dirA/file.txt";
+    const char *newpath = "dirB/file.txt";
+
+    printf("TEST: cross-directory rename\n");
+
+    /* Cleanup in case previous run failed */
+    fs->unlink(oldpath);
+    fs->unlink(newpath);
+    fs->rmdir(dir1);
+    fs->rmdir(dir2);
+
+    /* Create directories */
+    assert(fs->mkdir(dir1) == 0);
+    assert(fs->mkdir(dir2) == 0);
+
+    /* Create file in dirA */
+    assert(fs->create(oldpath, &f) == 0);
+    assert(f.write("cross-move-test", 15) == 15);
+    assert(f.close() == 0);
+
+    /* Rename (move) into dirB */
+    assert(fs->rename(oldpath, newpath) == 0);
+
+    /* Old must not exist */
+    assert(fs->stat(oldpath, &st) != 0 && fs->last_error() == Fat32::Error::FILE_NOT_FOUND);
+    
+    /* New must exist */
+    assert(fs->stat(newpath, &st) == 0);
+    assert(st._size == 15);
+
+    /* Verify content */
+    assert(fs->open(newpath, &f) == 0);
+    assert(f.read(buf, 15) == 15);
+    assert(memcmp(buf, "cross-move-test", 15) == 0);
+    assert(f.close() == 0);
+
+    printf("  cross-directory rename passed\n");
+}
 
 /* ================= MAIN ================= */
 
@@ -404,6 +451,7 @@ int main(void)
     test_stat(&fs);
     test_dirops(&fs);
     test_rename(&fs);
+    test_cross_directory_rename(&fs);
 
     test_basic_write_read(&fs);
     test_overwrite_middle(&fs);
