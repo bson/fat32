@@ -1626,9 +1626,6 @@ int FileSys::opendir(const char *path, FileSys::DIR *dir)
         dir->_start_cluster = _root_cluster;
         dir->_current_cluster = _root_cluster;
     } else {
-        uint32_t cluster;
-        uint8_t attr;
-
         File d;
         if (open(path, &d))
             return -1;

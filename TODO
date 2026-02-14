@@ -1,4 +1,10 @@
-Implement a gpt LBA-to-PBA mapper, as a pass-through BlockDev.
+Extract timestamps to File. Just put all the relevant info in File.
+After all, it's perfectly possible to open a directory or hidden file.
+Return FAT-style timestamps. Update on read/write.  Add a sync()
+method to update this on disk and call it on close.  Also update
+hidden and RO attributes on close.
+
+Implement a GPT LBA-to-PBA mapper, as a pass-through BlockDev.
 
 Refactor test_fat32 a bit so it can be built for firmware (with a
 suitable block device, like an SD or CF card and driver) and run on a
@@ -43,5 +49,4 @@ When a file is deleted or renamed, also remove its LFN entry.
 Consider adding 7-bit ASCII compatible LFNs and simply use '_' or '='
 for anything unprintable, or something.
 
-Add function to set 'readonly' and 'hidden' attribute bits in a dirent.
-
+Create a function to return the low-high size field in the BPB
