@@ -516,7 +516,7 @@ int main(void)
     Fat32::FileSys::fsck_report_t report;
     assert(fs.fsck(false, &report) == 0);
 
-    printf("\nFSCK REPORT\n");
+    printf("\n--- fsck ---\n");
     printf("Files: %u\n", report.files);
     printf("Directories: %u\n", report.directories);
     printf("Free clusters: %u\n", report.free_clusters);
