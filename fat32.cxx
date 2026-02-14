@@ -521,6 +521,7 @@ int FileSys::dir_find(uint32_t cluster,
                         file->_file_pos   = 0;
                         file->_dir_lba    = lba + s;
                         file->_dir_offset = i * sizeof(*ent);
+                        file->_attr       = ent[i].attr;
                         file->_fs = this;
                         return success();
                     }
@@ -1213,6 +1214,10 @@ int FileSys::rmdir(const char *path)
     if (open(path, &f))
         return -1;
 
+    // Check that it's a directory
+    if (!(f._attr & DirentAttr::DIRECTORY))
+        return with_error(Error::NOT_DIRECTORY);
+
     /* Check empty */
     if (dir_is_empty(f._first_cluster) != 1)
         return with_error(Error::DIR_NOT_EMPTY);
@@ -1625,17 +1630,10 @@ int FileSys::opendir(const char *path, FileSys::DIR *dir)
         uint8_t attr;
 
         File d;
-
         if (open(path, &d))
             return -1;
 
-        Stat st;
-        if (stat(path, &st))
-            return -1;
-
-        attr = st._attributes;
-
-        if (!(attr & DirentAttr::DIRECTORY))  /* must be directory */
+        if (!(d.attributes() & DirentAttr::DIRECTORY))  /* must be directory */
             return with_error(Error::NOT_DIRECTORY);
 
         dir->_start_cluster = d._first_cluster;

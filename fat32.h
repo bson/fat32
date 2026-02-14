@@ -185,12 +185,15 @@ namespace Fat32 {
             uint32_t _dir_lba;
             uint32_t _dir_offset;
 
+            DirentAttr _attr;
+
             // Test if anything more can be read.  Available can be
             // negative after a seek past EOF.
             int32_t available() const { return int32_t(_file_size - _file_pos); }
             bool eof() const { return available() <= 0; }
             uint32_t filepos() const { return _file_pos; }
 
+            DirentAttr attributes() const { return _attr; }
 
             // These return bytes read/written, or -1 on error
             int read(void *buffer, size_t len);

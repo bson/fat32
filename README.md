@@ -22,6 +22,8 @@ Each volume should only be mounted in a single file system.
 
 File paths use the Linux/Darwin-style '/'.
 
+The read-only and hidden attribute bits are advisory only and not enforced in any way.  They can be found either by `stat()` or by `File::attributes()` after `open()`.
+
 It really only is assumed to work with 512-byte sectored storage devices. It's possible other sizes might work, but you're on your own.  The default setting of MAX_SECTOR_SIZE in fat32.h will have it refuse to mount anything else.  The sector size is part of the formatting, and it's exceedingly unlikely this will ever be used with hardware that can't use 512-byte sectors.  Still, some SD cards have soft sector sizes...
 
 There are a few build options:

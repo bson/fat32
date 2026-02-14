@@ -42,3 +42,6 @@ When a file is deleted or renamed, also remove its LFN entry.
 
 Consider adding 7-bit ASCII compatible LFNs and simply use '_' or '='
 for anything unprintable, or something.
+
+Add function to set 'readonly' and 'hidden' attribute bits in a dirent.
+
