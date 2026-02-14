@@ -47,6 +47,8 @@ namespace Fat32 {
         BDEV_INIT_ERR             =12, // Block device init failed (e.g. bad partition)
         FSCK_ALLOC_ERR            =13, // fsck calloc() failed
         NOT_DIRECTORY             =14, // opendir or other dir op on a non-directory
+        FS_NEEDS_REPAIR           =15, // Consistency check failed
+        BAD_FAT_SIZE              =16, // FAT size is 0
         NUM_ERRORS
     };
 
@@ -56,22 +58,24 @@ namespace Fat32 {
         // Single sector buffer.
         uint32_t _sec_lba;      // Sector currently being staged
         uint8_t  _sector[MAX_SECTOR_SIZE];
-        char     _tmp[256];     // For path editing and wrangling
-
-        uint32_t _fat_start_lba;
-        uint32_t _data_start_lba;
-        uint32_t _root_cluster;
+        char     _tmp[256];     // For path wrangling
 
         uint32_t _sectors_per_cluster;
         uint32_t _bytes_per_sector;
         uint32_t _reserved_sectors;
+
+        uint32_t _fat_start_lba;
         uint32_t _sectors_per_fat;
         uint32_t _fat_count;
+
+        uint32_t _data_start_lba;
+        uint32_t _root_cluster;
         uint32_t _total_clusters;
 
         uint32_t _fsinfo_lba;
         uint32_t _free_cluster_count;
         uint32_t _next_free_cluster;
+
         uint16_t _ext_flags;
         bool     _fsinfo_valid; // fsinfo was found or was initialized
         bool     _fsinfo_dirty; // fsinfo needs to be rewritten
@@ -91,6 +95,10 @@ namespace Fat32 {
             : _bdev(bdev), _sec_lba(~uint32_t(0))
         { }
 
+        // If compiled with -DFAT32_STRICT_MOUNT then this includes
+        // integrity checks.  If it fails with FS_NEEDS_REPAIR then
+        // the FS is still mounted and usable.  It can be repaired
+        // with fsck() or used anyway.
         int mount();
 
         // Checkpoint FS state (currently only PSINFO) if dirty
@@ -120,6 +128,7 @@ namespace Fat32 {
             uint32_t size_mismatches;
             uint32_t invalid_entries;
             uint32_t invalid_references;
+            uint32_t repairs;
         } fsck_report_t;
 
         // Requires heap (calloc)
@@ -258,8 +267,11 @@ namespace Fat32 {
 
         int fsck_mark_chain(fsck_ctx_t *ctx, uint32_t start_cluster, fsck_report_t *report);
         int fsck_chain_length(uint32_t start, uint32_t* len);
+        void fsck_verify_mirrors(fsck_ctx_t *ctx, fsck_report_t* report, bool fix);
         int fsck_scan_directory(fsck_ctx_t *ctx, uint32_t dir_cluster, bool fix,
                                 fsck_report_t *rep);
+        int fat_compare(uint32_t fat_a, uint32_t fat_b); // 0=same, 1=differ, 1=error
+        int fat_copy(uint32_t src, uint32_t dst);
 
 
 

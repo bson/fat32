@@ -48,11 +48,17 @@ static const char* error_strings[] = {
     [BDEV_INIT_ERR]           = "Block device failed to initialize",
     [FSCK_ALLOC_ERR]          = "Failed to allocate memory in fsck",
     [NOT_DIRECTORY]           = "Not a directory",
+    [FS_NEEDS_REPAIR]         = "File system needs repair",
+    [BAD_FAT_SIZE]            = "FAT size is 0",
 };
 
 static_assert((sizeof error_strings / sizeof error_strings[0]) == NUM_ERRORS,
     "some error is lacking a string");
 
+static constexpr uint8_t dot[12] = ".          ";
+static constexpr uint8_t dotdot[12] = "..         ";
+
+    
 const char* FileSys::strerror(Error err) const
 {
     if (err >= NUM_ERRORS || error_strings[err] == NULL)
@@ -304,6 +310,9 @@ int FileSys::mount()
     if (_bytes_per_sector > MAX_SECTOR_SIZE)
         return with_error(Error::UNSUPPORTED_SECTOR_SIZE);
 
+    if (_sectors_per_fat == 0)
+        return with_error(Error::BAD_FAT_SIZE);
+
     _fat_start_lba  = _reserved_sectors;
     _data_start_lba = _reserved_sectors + _fat_count * _sectors_per_fat;
 
@@ -362,7 +371,35 @@ int FileSys::mount()
         _fsinfo_valid       = true;
     }
 
-    return dir_load_volume_label_from_root();
+    if (dir_load_volume_label_from_root())
+        return -1;
+
+
+    // Strict checks; this is last so the FS is still usable if we
+    // fail here.
+#ifdef FAT32_STRICT_MOUNT
+    // Check FAT mirror consistency
+    if (!(_ext_flags & MIRROR_DISABLED)) {
+        for (uint32_t i = 1; i < _fat_count; i++) {
+            const int cmp = fat_compare(0, i);
+            if (cmp < 0)
+                return -1;
+
+            if (cmp > 0)
+                return with_error(Error::FS_NEEDS_REPAIR);
+        }
+    }
+
+    // Run fsck check
+    fsck_report_t report;
+    if (fsck(false, &report))
+        return with_error(Error::FS_NEEDS_REPAIR);
+
+    if (report.lost_clusters || report.cross_links || report.size_mismatches
+        || report.invalid_entries || report.invalid_references)
+        return with_error(Error::FS_NEEDS_REPAIR);
+#endif
+    return success();
 }
 
 
@@ -1051,9 +1088,6 @@ int FileSys::stat(const char *path, FileSys::Stat *st)
 }
 
 
-static const uint8_t dot[12] = ".          ";
-static const uint8_t dotdot[12] = "..         ";
-    
 int FileSys::dir_is_empty(uint32_t cluster)
 {
     while (cluster < EOC) {
@@ -1229,6 +1263,9 @@ int FileSys::fsck(bool fix, fsck_report_t* report)
 
     report->total_clusters = _total_clusters;
 
+    // Check FAT mirrors
+    fsck_verify_mirrors(&ctx, report, fix);
+
     /* Scan directory tree starting at root */
     report->directories = 1;        // root is implicit
     (void)fsck_scan_directory(&ctx, _root_cluster, fix, report);
@@ -1239,9 +1276,10 @@ int FileSys::fsck(bool fix, fsck_report_t* report)
         if (!fat_get(c, &val)) {
             if (val != 0 && ctx.cluster_refcount[c] == 0) {
                 ++report->lost_clusters;
-
+#ifdef FAT32_FSCK_REPAIR
                 if (fix)
                     fat_set(c, 0);
+#endif
             }
 
             if (val == 0)
@@ -1252,6 +1290,11 @@ int FileSys::fsck(bool fix, fsck_report_t* report)
     }
 
     free(ctx.cluster_refcount);
+
+#ifdef FAT32_FSCK_REPAIR
+    if (fix)
+        sync();
+#endif
 
     return success();
 }
@@ -1299,6 +1342,43 @@ int FileSys::fsck_chain_length(uint32_t start, uint32_t* len)
 
     *len = n;
     return 0;
+}
+
+
+void FileSys::fsck_verify_mirrors(FileSys::fsck_ctx_t *ctx,
+                                  FileSys::fsck_report_t* report,
+                                  bool fix)
+{
+    if (_fat_count < 2)
+        return;
+
+    uint32_t primary = 0;
+
+    if (_ext_flags & MIRROR_DISABLED)
+        primary = _ext_flags & ACTIVE_FAT_MASK;
+
+    for (uint32_t i = 0; i < _fat_count; i++) {
+        if (i == primary)
+            continue;
+        
+        const int cmp = fat_compare(primary, i);
+
+        if (cmp < 0) {
+            ++report->invalid_references;
+            continue;
+        }
+
+        if (cmp > 0) {
+            ++report->cross_links; /* reuse counter */
+
+#ifdef FAT32_FSCK_REPAIR
+            if (fix) {
+                if (fat_copy(primary, i) == 0)
+                    ++report->repairs;
+            }
+#endif
+        }
+    }
 }
 
 
@@ -1363,10 +1443,12 @@ int FileSys::fsck_scan_directory(fsck_ctx_t *ctx,
 
                 if (start_cluster >= _total_clusters) {
                     ++report->invalid_entries;
+#ifdef FAT32_FSCK_REPAIR
                     if (fix) {
                         entry->name[0] = 0xe5;
                         dirty = true;
                     }
+#endif
                     continue;
                 }
 
@@ -1402,10 +1484,12 @@ int FileSys::fsck_scan_directory(fsck_ctx_t *ctx,
                             if (load_sector(lba+s, &sector))
                                 return -1;
                             dirty = false;
+#ifdef FAT32_FSCK_REPAIR
                             if (fix) {
                                 entry->name[0] = 0xe5;
                                 dirty = true;
                             }
+#endif
                         } else {
                             if (load_sector(lba+s, &sector))
                                 return -1;
@@ -1425,10 +1509,12 @@ int FileSys::fsck_scan_directory(fsck_ctx_t *ctx,
 
                         if (cluster_bytes < entry->file_size) {
                             ++report->size_mismatches;
+#ifdef FAT32_FSCK_REPAIR
                             if (fix) {
                                 entry->file_size = cluster_bytes;
                                 dirty = true;
                             }
+#endif
                         }
 
                     } else if (start_cluster != 0) {
@@ -1452,6 +1538,56 @@ int FileSys::fsck_scan_directory(fsck_ctx_t *ctx,
 
     return 0;
 }
+
+
+int FileSys::fat_compare(uint32_t fat_a, uint32_t fat_b)
+{
+    static uint8_t sec_a[MAX_SECTOR_SIZE];
+
+    success();                  // Clear any error
+
+    uint32_t lba_a = _fat_start_lba + fat_a * _sectors_per_fat;
+    uint32_t lba_b = _fat_start_lba + fat_b * _sectors_per_fat;
+
+    for (uint32_t s = 0; s < _sectors_per_fat; s++) {
+        uint8_t* sec_a_in;
+        if (load_sector(lba_a, &sec_a_in))
+            return -1;
+
+        ::memcpy(sec_a, sec_a_in, sizeof sec_a);
+
+        uint8_t* sec_b;
+        if (load_sector(lba_b, &sec_b))
+            return -1;
+
+        if (::memcmp(sec_a, sec_b, _bytes_per_sector) != 0)
+            return 1; /* mismatch */
+
+        ++lba_a;
+        ++lba_b;
+    }
+
+    return success(); /* identical */
+}
+
+
+int FileSys::fat_copy(uint32_t src, uint32_t dst)
+{
+    uint32_t lba_src = _fat_start_lba + src * _sectors_per_fat;
+    uint32_t lba_dst = _fat_start_lba + dst * _sectors_per_fat;
+
+    for (uint32_t s = 0; s < _sectors_per_fat; s++) {
+        uint8_t* sector;
+        if (load_sector(lba_src, &sector))
+            return -1;
+
+        if (store_sector(lba_dst))
+            return -1;
+    }
+
+    return success();
+}
+
 
 
 int FileSys::opendir(const char *path, FileSys::DIR *dir)

@@ -1,11 +1,5 @@
 Implement a gpt LBA-to-PBA mapper, as a pass-through BlockDev.
 
-Currently a variety of functions that break down paths need to make a
-local copy of it, so they can replace '/' with 0.  Fix this.  One
-possibility is to create a set of basic C-like string functions that
-consider either '/' or 0 to be end of a string.  Then paths can be
-broken down as they are, without modification.
-
 Refactor test_fat32 a bit so it can be built for firmware (with a
 suitable block device, like an SD or CF card and driver) and run on a
 target platform.
@@ -31,8 +25,8 @@ Add a consistency check on startup and refuse to mount if fsck is
 needed.  Add fsck?  It'll be big and slow, but if not wanted could
 simply not be used.
 
-Verify that the BPB sectors_per_fat is 0, and if so refuse to mount
-it.  (This is standard practice.)
+Check if the BPB sectors_per_fat is 0, and if so refuse to mount it.
+(This is standard practice.)
 
 When adding GPT partition mapping (LBA to PBA) verify that the LBA is
 inside the bounds and not in the hidden/reserved prologue.  It might
@@ -44,6 +38,8 @@ the caller there is corruption and that fsck should be run.
 Verify that the partition is between 32MB and 32TB.  Especially the
 lower limit is a hard stop for FAT32.
 
-Update all FAT copies.
-
 Extend Stat to include attributes and timestamps.
+
+Add fsck repair stats to the report.
+
+The data structures used all have a little-endian dependency.

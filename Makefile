@@ -1,10 +1,12 @@
 CXX=g++
 LD=g++
+DEFS=-DFAT32_STRICT_MOUNT=1 -DFAT32_FSCK_REPAIR=1
+
 CXXFLAGS_DEBUG=-fno-inline -fno-exceptions -fno-rtti -fno-unwind-tables -ffunction-sections \
-		-fdata-sections -g -O0
+		-fdata-sections -g -O0 $(DEFS)
 
 CXXFLAGS=-fno-exceptions -fno-rtti -fno-unwind-tables -ffunction-sections \
-		-fdata-sections -Os
+		-fdata-sections -Os $(DEFS)
 
 LDFLAGS=-Wl,--gc-sections
 

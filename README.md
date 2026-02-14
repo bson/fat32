@@ -23,3 +23,7 @@ Each volume should only be mounted in a single file system.
 File paths use the Linux/Darwin-style '/'.
 
 It really only is assumed to work with 512-byte sectored storage devices. It's possible other sizes might work, but you're on your own.  The default setting of MAX_SECTOR_SIZE in fat32.h will have it refuse to mount anything else.  The sector size is part of the formatting, and it's exceedingly unlikely this will ever be used with hardware that can't use 512-byte sectors.  Still, some SD cards have soft sector sizes...
+
+There are a few build options:
+ * `-DFAT32_STRICT_MOUNT=1` - makes `mount()` perform integrity checks as its last mount step.  If these fails it returns -1 and sets the last error to `FS_NEEDS_REPAIR`.  It's still mounted and usable, and can be repaired.  The reason for this to be a build option is that it adds a dependency on the rather sizeable `fsck()` and increases mount times.
+ * `-DFAT32_FSCK_REPAIR=1` - `fsck()` has an argument to fix problems (repair).  Unless this is defined it's ignored and will only perform checks.  This shrinks the footprint and is useful if the target system is never intended to perform repairs but just refuse to use a dirty FS.
