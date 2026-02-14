@@ -4,7 +4,7 @@
 
 
 // Hard-wire the size
-enum : int { CACHE_SECTORS = 8 };
+enum : int { CACHE_SECTORS = 16 };
 enum : int { SECTOR_SIZE = 512 };
 
 

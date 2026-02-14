@@ -638,7 +638,7 @@ void test_readdir(Fat32::FileSys* fs)
 int main(void)
 {
     PosixBlockDev bdev;
-    CacheBlockDev bcache(bdev, true);
+    CacheBlockDev bcache(bdev, false);
 
     assert(system("dd if=/dev/zero of=test.img bs=1M count=32 && "
                   "mkfs.vfat -F 32 -n \"FAT32 Test\" " TEST_IMAGE) == 0);
