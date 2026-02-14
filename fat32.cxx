@@ -657,10 +657,9 @@ int FileSys::open(const char *path, FileSys::File *file)
 
     const char* p = *path == '/' ? path + 1 : path;
 
-    char tmp[256];
-    ::strncpy(tmp, p, sizeof tmp);
-    tmp[255] = 0;
-    if (dir_find_parent(tmp, true, &dir_cluster))
+    ::strncpy(_tmp, p, sizeof _tmp);
+    _tmp[255] = 0;
+    if (dir_find_parent(_tmp, true, &dir_cluster))
         return -1;
 
     return dir_find(dir_cluster, basename(path), file);
@@ -925,11 +924,10 @@ int FileSys::create(const char *path, FileSys::File *file)
         return with_error(Error::ALREADY_EXISTS);
 
     const char* p = *path == '/' ? path + 1 : path;
-    char tmp[256];
-    ::strncpy(tmp, p, sizeof tmp);
-    tmp[255] = 0;
+    ::strncpy(_tmp, p, sizeof _tmp);
+    _tmp[255] = 0;
     uint32_t dir_cluster;
-    if (dir_find_parent(tmp, true, &dir_cluster))
+    if (dir_find_parent(_tmp, true, &dir_cluster))
         return -1;
 
     uint32_t lba;
@@ -991,11 +989,10 @@ int FileSys::rename(const char *from_path, const char* to_path)
 
     /* Extract parent directory cluster of new_path */
     const char* tp = *to_path == '/' ? to_path + 1 : to_path;
-    char tmp[256];
-    ::strncpy(tmp, tp, sizeof tmp);
-    tmp[255] = 0;
+    ::strncpy(_tmp, tp, sizeof _tmp);
+    _tmp[255] = 0;
     uint32_t to_dir_cluster;
-    if (dir_find_parent(tmp, true, &to_dir_cluster))
+    if (dir_find_parent(_tmp, true, &to_dir_cluster))
         return -1;
 
     uint8_t* sector;
@@ -1104,12 +1101,11 @@ int FileSys::mkdir(const char *path)
         return with_error(Error::ALREADY_EXISTS);
 
     const char* p = *path == '/' ? path + 1 : path;
-    char tmp[256];
-    ::strncpy(tmp, p, sizeof tmp);
-    tmp[255] = 0;
+    ::strncpy(_tmp, p, sizeof _tmp);
+    _tmp[255] = 0;
 
     uint32_t parent_cluster;
-    if (dir_find_parent(tmp, true, &parent_cluster))
+    if (dir_find_parent(_tmp, true, &parent_cluster))
         return -1;
 
     uint32_t slot_lba;

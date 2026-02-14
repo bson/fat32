@@ -29,7 +29,7 @@ test_fat32:	$(OBJS) $(DEPS)
 	$(CXX) $(CXXFLAGS_DEBUG) -o $@ -c $<
 
 %.d : %.cxx
-	$(CXX) $(CXXFLAGS_DEBUG) $(DEPFLAGS) -o $@ -c $<
+	@$(CXX) $(CXXFLAGS_DEBUG) $(DEPFLAGS) -o $@ -c $<
 
 clean:
 	rm -f $(OBJS) test_fat32

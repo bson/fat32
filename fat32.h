@@ -54,8 +54,9 @@ namespace Fat32 {
         BlockDev& _bdev;
 
         // Single sector buffer.
-        uint32_t _sec_lba;          // Sector currently buffered
+        uint32_t _sec_lba;      // Sector currently being staged
         uint8_t  _sector[MAX_SECTOR_SIZE];
+        char     _tmp[256];     // For path editing and wrangling
 
         uint32_t _fat_start_lba;
         uint32_t _data_start_lba;

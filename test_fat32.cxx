@@ -668,18 +668,16 @@ int main(void)
 
     test_psinfo_write(&fs);
 
-    fs.sync();
-
     printf("All tests completed.\n");
     printf("\nSector I/O: %d loads, %d stores\n", bdev.numloads, bdev.numstores);
     printf("\nCache: %d reads (%d hits, %d%%), %d writes (%d hits, %d%%)\n",
            bcache._nreads, bcache._nread_hits, (bcache._nread_hits*100)/bcache._nreads,
            bcache._nwrites, bcache._nwrite_hits, (bcache._nwrite_hits*100)/bcache._nwrites);
 
+    printf("\n--- fsck ---\n");
     Fat32::FileSys::fsck_report_t report;
     assert(fs.fsck(false, &report) == 0);
 
-    printf("\n--- fsck ---\n");
     printf("Files: %u\n", report.files);
     printf("Directories: %u\n", report.directories);
     printf("Free clusters: %u\n", report.free_clusters);
@@ -689,6 +687,8 @@ int main(void)
     printf("Lost clusters: %u\n", report.lost_clusters);
     printf("File size mismatches: %u\n", report.size_mismatches);
     printf("Invalid directory entries: %u\n", report.invalid_entries);
+
+    fs.sync();
 
     close(bdev.fd);
 
