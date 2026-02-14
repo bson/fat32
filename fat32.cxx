@@ -594,8 +594,7 @@ int FileSys::dir_find_free_slot(uint32_t dir_cluster,
             dirent_t *ent = (dirent_t*)sector;
 
             for (int i = 0; i < _bytes_per_sector / sizeof(*ent); i++) {
-                if (ent[i].name[0] == 0x00
-                    || ent[i].name[0] == 0xe5) {
+                if (ent[i].name[0] == 0x00 || ent[i].name[0] == 0xe5) {
                     *out_lba = lba + s;
                     *out_offset = i * sizeof(*ent);
                     return success();
@@ -603,6 +602,7 @@ int FileSys::dir_find_free_slot(uint32_t dir_cluster,
             }
         }
 
+        // Advance to next cluster
         uint32_t next;
         if (fat_get(dir_cluster, &next))
             return -1;
