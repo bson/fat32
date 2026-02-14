@@ -10,6 +10,8 @@ namespace Fat32 {
     // becomes part of its formatting.
     enum : uint16_t { MAX_SECTOR_SIZE = 512 };
     enum : uint32_t { EOC = 0x0ffffff8 };
+    enum : uint16_t { MIRROR_DISABLED = 0x0080 };
+    enum : uint16_t { ACTIVE_FAT_MASK = 0x000f };
 
     enum DirentAttr : uint8_t {
         NONE      = 0x00,
@@ -69,6 +71,7 @@ namespace Fat32 {
         uint32_t _fsinfo_lba;
         uint32_t _free_cluster_count;
         uint32_t _next_free_cluster;
+        uint16_t _ext_flags;
         bool     _fsinfo_valid; // fsinfo was found or was initialized
         bool     _fsinfo_dirty; // fsinfo needs to be rewritten
 

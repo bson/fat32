@@ -8,8 +8,11 @@ CXXFLAGS=-fno-exceptions -fno-rtti -fno-unwind-tables -ffunction-sections \
 
 LDFLAGS=-Wl,--gc-sections
 
-CXX_O=fat32.o cache.o test_fat32.o
+SRCS=fat32.cxx cache.cxx test_fat32.cxx
+OBJS=$(patsubst %.cxx, %.o, $(SRCS))
+DEPS=$(patsubst %.cxx, %.d, $(SRCS))
 
+DEPFLAGS = -MM
 
 all:	test_fat32
 
@@ -19,14 +22,18 @@ test: test_fat32
 valgrind: test_fat32
 	valgrind $^
 
-test_fat32:	$(CXX_O)
-	$(LD) -o $@ $(LDFLAGS) $^
+test_fat32:	$(OBJS) $(DEPS)
+	$(LD) -o $@ $(LDFLAGS) $(OBJS)
 
-%.o:	%.cxx
+%.o : %.cxx
 	$(CXX) $(CXXFLAGS_DEBUG) -o $@ -c $<
 
+%.d : %.cxx
+	$(CXX) $(CXXFLAGS_DEBUG) $(DEPFLAGS) -o $@ -c $<
 
 clean:
-	rm -f $(CXX_O) test_fat32
+	rm -f $(OBJS) test_fat32
+
+-include $(DEPS)
 
 .PHONY: test clean all valgrind

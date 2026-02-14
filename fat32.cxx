@@ -110,8 +110,8 @@ int FileSys::fat_get(uint32_t cluster, uint32_t *val)
 
 
 int FileSys::fat_set_single(uint32_t cluster,
-                                   uint32_t val,
-                                   uint32_t fat_index)
+                            uint32_t val,
+                            uint32_t fat_index)
 {
     const uint32_t off = cluster * 4;
     const uint32_t base = _fat_start_lba + fat_index * _sectors_per_fat;
@@ -135,9 +135,20 @@ int FileSys::fat_set_single(uint32_t cluster,
 
 int FileSys::fat_set(uint32_t cluster, uint32_t val)
 {
-    for (uint32_t i = 0; i < _fat_count; i++)
-        if (fat_set_single(cluster, val, i))
+    const int mirror_disabled = _ext_flags & MIRROR_DISABLED;
+
+    uint32_t start_fat = 0;
+    uint32_t end_fat   = _fat_count;
+
+    if (mirror_disabled) {
+        start_fat = _ext_flags & ACTIVE_FAT_MASK;
+        end_fat   = start_fat + 1;
+    }
+
+    for (uint32_t fat = start_fat; fat < end_fat; fat++)
+        if (fat_set_single(cluster, val, fat))
             return -1;
+
     return success();
 }
 
@@ -288,6 +299,7 @@ int FileSys::mount()
     _sectors_per_fat    = bpb->fat_size_32;
     _fat_count          = bpb->num_fats;
     _root_cluster       = bpb->root_cluster;
+    _ext_flags          = bpb->ext_flags;
 
     if (_bytes_per_sector > MAX_SECTOR_SIZE)
         return with_error(Error::UNSUPPORTED_SECTOR_SIZE);
