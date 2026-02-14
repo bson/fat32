@@ -471,6 +471,168 @@ void test_cross_directory_rename_dest_exists(Fat32::FileSys* fs)
 }
 
 
+/* ================= READDIR ================= */
+
+/* Helper: collect directory names into array */
+static int collect_names(Fat32::FileSys* fs,
+                         const char *path,
+                         char names[][13],
+                         int max)
+{
+    Fat32::FileSys::DIR dir;
+    Fat32::FileSys::DIR::entry_t ent;
+    int count = 0;
+
+    assert(fs->opendir(path, &dir) == 0);
+
+    while (dir.readdir(&ent) > 0) {
+        if (count < max) {
+            ::strncpy(names[count], ent.name, 13);
+            count++;
+        }
+    }
+
+    dir.closedir();
+    return count;
+}
+
+
+static void test_empty_directory(Fat32::FileSys* fs)
+{
+    assert(fs->mkdir("EMPTY") == 0);
+
+    char names[16][13];
+    int count = collect_names(fs, "EMPTY", names, 16);
+
+    assert(count == 0);
+}
+
+
+static void test_single_file(Fat32::FileSys* fs)
+{
+    Fat32::FileSys::File f;
+    assert(fs->create("FILE100.TXT", &f) == 0);
+
+    char names[50][13];
+    int count = collect_names(fs, "", names, 50);
+
+    int found = 0;
+    for (int i = 0; i < count; i++)
+        if (::strcmp(names[i], "FILE100.TXT") == 0)
+            found = 1;
+
+    assert(found);
+}
+
+
+static void test_multiple_files(Fat32::FileSys* fs)
+{
+    Fat32::FileSys::File f;
+    assert(fs->create("A.TXT", &f) == 0);
+    assert(fs->create("B.TXT", &f) == 0);
+    assert(fs->create("C.TXT", &f) == 0);
+
+    char names[50][13];
+    int count = collect_names(fs, "", names, 50);
+
+    int a=0,b=0,c=0;
+
+    for (int i=0;i<count;i++) {
+        if (!strcmp(names[i],"A.TXT")) a=1;
+        if (!strcmp(names[i],"B.TXT")) b=1;
+        if (!strcmp(names[i],"C.TXT")) c=1;
+    }
+
+    assert(a && b && c);
+}
+
+
+static void test_subdirectory(Fat32::FileSys* fs)
+{
+    assert(fs->mkdir("DIR9") == 0);
+    Fat32::FileSys::File f;
+    assert(fs->create("DIR9/INNER.TXT", &f) == 0);
+
+    char names[50][13];
+    int count = collect_names(fs, "DIR9", names, 50);
+
+    assert(count == 1);
+    assert(strcmp(names[0], "INNER.TXT") == 0);
+}
+
+
+static void test_deleted_entries(Fat32::FileSys* fs)
+{
+    Fat32::FileSys::File f;
+    assert(fs->create("DELME.TXT", &f) == 0);
+    assert(fs->unlink("DELME.TXT") == 0);
+
+    char names[16][13];
+    int count = collect_names(fs, "", names, 16);
+
+    for (int i = 0; i < count; i++)
+        assert(strcmp(names[i], "DELME.TXT") != 0);
+}
+
+
+static void test_large_directory(Fat32::FileSys* fs)
+{
+    char name[20];
+
+    Fat32::FileSys::File f;
+    for (int i = 0; i < 200; i++) {
+        ::snprintf(name, sizeof(name), "F%03d.TXT", i);
+        assert(fs->create(name, &f) == 0);
+    }
+
+    Fat32::FileSys::DIR dir;
+    Fat32::FileSys::DIR::entry_t ent;
+
+    assert(fs->opendir("", &dir) == 0);
+
+    int count = 0;
+    while (dir.readdir(&ent) > 0)
+        count++;
+
+    dir.closedir();
+
+    assert(count >= 200);
+}
+
+
+static void test_readdir_eof(Fat32::FileSys* fs)
+{
+    Fat32::FileSys::DIR dir;
+    Fat32::FileSys::DIR::entry_t ent;
+
+    assert(fs->opendir("", &dir) == 0);
+
+    while (dir.readdir(&ent) > 0)
+        ;
+
+    /* Multiple calls after EOF must return 0 */
+    assert(dir.readdir(&ent) == 0);
+    assert(dir.readdir(&ent) == 0);
+
+    dir.closedir();
+}
+
+
+void test_readdir(Fat32::FileSys* fs)
+{
+    printf("TEST: readdir\n");
+    test_empty_directory(fs);
+    test_single_file(fs);
+    test_multiple_files(fs);
+    test_subdirectory(fs);
+    test_deleted_entries(fs);
+    test_large_directory(fs);
+    test_readdir_eof(fs);
+
+    printf("   readdir tests passed\n");
+}
+
+
 /* ================= MAIN ================= */
 
 int main(void)
@@ -478,7 +640,7 @@ int main(void)
     PosixBlockDev bdev;
     CacheBlockDev bcache(bdev, true);
 
-    assert(system("dd if=/dev/zero of=test.img bs=1M count=16 && "
+    assert(system("dd if=/dev/zero of=test.img bs=1M count=32 && "
                   "mkfs.vfat -F 32 -n \"FAT32 Test\" " TEST_IMAGE) == 0);
 
     bdev.fd = ::open(TEST_IMAGE, O_RDWR);
@@ -502,6 +664,7 @@ int main(void)
     test_truncate_shrink(&fs);
     test_truncate_grow(&fs);
     test_truncate_zero(&fs);
+    test_readdir(&fs);
 
     test_psinfo_write(&fs);
 

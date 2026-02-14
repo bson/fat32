@@ -44,6 +44,7 @@ namespace Fat32 {
         BDEV_FLUSH_ERR            =11, // Block device flush error
         BDEV_INIT_ERR             =12, // Block device init failed (e.g. bad partition)
         FSCK_ALLOC_ERR            =13, // fsck calloc() failed
+        NOT_DIRECTORY             =14, // opendir or other dir op on a non-directory
         NUM_ERRORS
     };
 
@@ -125,6 +126,36 @@ namespace Fat32 {
         Error last_error() const { return _last_error; }
         const char* strerror(Error err) const;
 
+        // readdir
+
+        class DIR {
+        protected:
+            friend class FileSys;
+
+            FileSys *_fs;
+
+            uint32_t _start_cluster;
+            uint32_t _current_cluster;
+
+            uint32_t _sector_index;
+            uint32_t _entry_offset;
+
+            uint8_t  _sector[MAX_SECTOR_SIZE];
+
+        public:
+            typedef struct {
+                char name[13];        /* 8.3 name, null-terminated */
+                DirentAttr attr;
+                uint32_t size;
+                uint32_t first_cluster;
+            } entry_t;
+
+            int readdir(entry_t *out);
+            void closedir();
+        };
+
+        int opendir(const char *path, DIR *dir);
+        void closedir();
 
         // Open files
 
@@ -179,6 +210,7 @@ namespace Fat32 {
 
     protected:
         friend class Fat32;
+        friend class DIR;
 
         int load_sector(uint32_t lba, uint8_t** sector); // Load sector, if needed
         int store_sector(uint32_t lba); // Write sector buffer
@@ -205,6 +237,7 @@ namespace Fat32 {
         int dir_is_empty(uint32_t cluster);
 
         int make_sfn(const char *name, uint8_t out[11]);
+        void build_83_name(const uint8_t *entry, char *out);
 
         int success() { _last_error = Error::SUCCESS; return 0; } // Good return
         int with_error(Error err) {                               // Error return

@@ -1,6 +1,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "fat32.h"
 
@@ -46,6 +47,7 @@ static const char* error_strings[] = {
     [BDEV_FLUSH_ERR]          = "Block device write error during flush",
     [BDEV_INIT_ERR]           = "Block device failed to initialize",
     [FSCK_ALLOC_ERR]          = "Failed to allocate memory in fsck",
+    [NOT_DIRECTORY]           = "Not a directory",
 };
 
 static_assert((sizeof error_strings / sizeof error_strings[0]) == NUM_ERRORS,
@@ -377,6 +379,28 @@ int FileSys::sync()
 }
 
 
+void FileSys::build_83_name(const uint8_t *entry, char *out)
+{
+    char name[9] = {0};
+    char ext[4]  = {0};
+
+    ::memcpy(name, entry, 8);
+    ::memcpy(ext, entry + 8, 3);
+
+    /* Trim trailing spaces */
+    for (int i = 7; i >= 0 && name[i] == ' '; i--)
+        name[i] = 0;
+
+    for (int i = 2; i >= 0 && ext[i] == ' '; i--)
+        ext[i] = 0;
+
+    if (ext[0])
+        ::snprintf(out, 13, "%s.%s", name, ext);
+    else
+        ::snprintf(out, 13, "%s", name);
+}
+
+
 int FileSys::make_sfn(const char *name, uint8_t out[11])
 {
     ::memset(out, ' ', 11);
@@ -404,8 +428,8 @@ int FileSys::make_sfn(const char *name, uint8_t out[11])
 
 
 int FileSys::dir_find(uint32_t cluster,
-                             const char *name,
-                             FileSys::File *file)
+                      const char *name,
+                      FileSys::File *file)
 {
     uint8_t sname[11];
     if (make_sfn(name, sname))
@@ -502,7 +526,7 @@ int FileSys::dir_find_free_slot(uint32_t dir_cluster,
                                        uint32_t *out_lba,
                                        uint32_t *out_offset)
 {
-    while (dir_cluster < EOC) {
+    while (true) {
         const uint32_t lba = cluster_to_lba(dir_cluster);
 
         for (uint32_t s = 0; s < _sectors_per_cluster; s++) {
@@ -522,11 +546,28 @@ int FileSys::dir_find_free_slot(uint32_t dir_cluster,
             }
         }
 
-        if (fat_get(dir_cluster, &dir_cluster))
+        uint32_t next;
+        if (fat_get(dir_cluster, &next))
             return -1;
-    }
 
-    return -1;
+        if (next == EOC) {
+            // Directory is full - grow it
+            if (fat_allocate(&next))
+                return -1;
+            if (fat_set(dir_cluster, next))
+                return -1;
+            
+            const uint32_t new_lba = cluster_to_lba(next);
+            for (uint32_t s = 0; s < _sectors_per_cluster; s++) {
+                ::memset(_sector, 0, sizeof _sector);
+                _sec_lba = new_lba + s;
+                if (store_sector(new_lba+s))
+                    return -1;
+            }
+        }
+
+        dir_cluster = next;
+    }
 }
 
 
@@ -602,8 +643,10 @@ int FileSys::open(const char *path, FileSys::File *file)
 {
     uint32_t dir_cluster;
 
+    const char* p = *path == '/' ? path + 1 : path;
+
     char tmp[256];
-    ::strncpy(tmp, path, sizeof tmp);
+    ::strncpy(tmp, p, sizeof tmp);
     tmp[255] = 0;
     if (dir_find_parent(tmp, true, &dir_cluster))
         return -1;
@@ -867,12 +910,13 @@ int FileSys::create(const char *path, FileSys::File *file)
 
     /* Fail if exists */
     if (open(path, &f) == 0)
-        return -1;
+        return with_error(Error::ALREADY_EXISTS);
 
-    uint32_t dir_cluster;
+    const char* p = *path == '/' ? path + 1 : path;
     char tmp[256];
-    ::strncpy(tmp, path, sizeof tmp);
+    ::strncpy(tmp, p, sizeof tmp);
     tmp[255] = 0;
+    uint32_t dir_cluster;
     if (dir_find_parent(tmp, true, &dir_cluster))
         return -1;
 
@@ -934,10 +978,11 @@ int FileSys::rename(const char *from_path, const char* to_path)
         return with_error(Error::ALREADY_EXISTS);
 
     /* Extract parent directory cluster of new_path */
-    uint32_t to_dir_cluster;
+    const char* tp = *to_path == '/' ? to_path + 1 : to_path;
     char tmp[256];
-    ::strncpy(tmp, to_path, sizeof tmp);
+    ::strncpy(tmp, tp, sizeof tmp);
     tmp[255] = 0;
+    uint32_t to_dir_cluster;
     if (dir_find_parent(tmp, true, &to_dir_cluster))
         return -1;
 
@@ -1046,10 +1091,12 @@ int FileSys::mkdir(const char *path)
     if (open(path, &f) == 0)
         return with_error(Error::ALREADY_EXISTS);
 
-    uint32_t parent_cluster;
+    const char* p = *path == '/' ? path + 1 : path;
     char tmp[256];
-    ::strncpy(tmp, path, sizeof tmp);
+    ::strncpy(tmp, p, sizeof tmp);
     tmp[255] = 0;
+
+    uint32_t parent_cluster;
     if (dir_find_parent(tmp, true, &parent_cluster))
         return -1;
 
@@ -1399,4 +1446,113 @@ int FileSys::fsck_scan_directory(fsck_ctx_t *ctx,
     }
 
     return 0;
+}
+
+
+int FileSys::opendir(const char *path, FileSys::DIR *dir)
+{
+    memset(dir, 0, sizeof(*dir));
+
+    dir->_fs = this;
+
+    // Special case root directory; it doesn't have a dirent anywhere,
+    // so has no usual properties like modification times etc.
+    if (!*path || !strcmp(path, "/")) { 
+        dir->_start_cluster = _root_cluster;
+        dir->_current_cluster = _root_cluster;
+    } else {
+        uint32_t cluster;
+        uint8_t attr;
+
+        File d;
+
+        if (open(path, &d))
+            return -1;
+
+        Stat st;
+        if (stat(path, &st))
+            return -1;
+
+        attr = st._attributes;
+
+        if (!(attr & DirentAttr::DIRECTORY))  /* must be directory */
+            return with_error(Error::NOT_DIRECTORY);
+
+        dir->_start_cluster = d._first_cluster;
+        dir->_current_cluster = d._first_cluster;
+    }
+
+    dir->_sector_index = 0;
+    dir->_entry_offset = 0;
+
+    return success();
+}
+
+
+int FileSys::DIR::readdir(entry_t *out)
+{
+    while (_current_cluster >= 2 && _current_cluster < EOC) {
+        const uint32_t lba = _fs->cluster_to_lba(_current_cluster);
+
+        while (_sector_index < _fs->_sectors_per_cluster) {
+
+            if (_entry_offset == 0) {
+                uint8_t* buf;
+                if (_fs->load_sector(lba + _sector_index, &buf))
+                    return -1;
+
+                ::memcpy(_sector, buf, sizeof _sector);
+            }
+
+            while (_entry_offset < _fs->_bytes_per_sector) {
+                const dirent_t *entry = (dirent_t*)(_sector + _entry_offset);
+
+                _entry_offset += 32;
+
+                /* End of directory */
+                if (entry->name[0] == 0x00)
+                    return 0;
+
+                /* Deleted */
+                if (entry->name[0] == 0xe5)
+                    continue;
+
+                const DirentAttr attr = entry->attr;
+
+                /* Skip LFN entries */
+                if (attr == DirentAttr::LFN)
+                    continue;
+
+                /* Skip "." and ".." */
+                if (!::memcmp(entry->name, dot, 11) || !::memcmp(entry->name, dotdot, 11))
+                    continue;
+
+                ::memset(out, 0, sizeof(*out));
+
+                _fs->build_83_name(entry->name, out->name);
+
+                out->attr = attr;
+
+                out->size = entry->file_size;
+                out->first_cluster = (entry->first_cluster_hi << 16) | entry->first_cluster_lo;
+
+                return 1; /* entry returned */
+            }
+
+            _entry_offset = 0;
+            ++_sector_index;
+        }
+
+        _sector_index = 0;
+        if (_fs->fat_get(_current_cluster, &_current_cluster))
+            return -1;
+    }
+
+    return 0;
+}
+
+
+void FileSys::DIR::closedir()
+{
+    (void)this;
 }
