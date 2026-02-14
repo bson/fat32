@@ -16,6 +16,9 @@ all:	test_fat32
 test: test_fat32
 	./$^
 
+valgrind: test_fat32
+	valgrind $^
+
 test_fat32:	$(CXX_O)
 	$(LD) -o $@ $(LDFLAGS) $^
 
@@ -26,4 +29,4 @@ test_fat32:	$(CXX_O)
 clean:
 	rm -f $(CXX_O) test_fat32
 
-.PHONY: test clean all
+.PHONY: test clean all valgrind
