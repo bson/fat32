@@ -507,13 +507,27 @@ int main(void)
 
     fs.sync();
 
-    close(bdev.fd);
-
     printf("All tests completed.\n");
     printf("\nSector I/O: %d loads, %d stores\n", bdev.numloads, bdev.numstores);
     printf("\nCache: %d reads (%d hits, %d%%), %d writes (%d hits, %d%%)\n",
            bcache._nreads, bcache._nread_hits, (bcache._nread_hits*100)/bcache._nreads,
            bcache._nwrites, bcache._nwrite_hits, (bcache._nwrite_hits*100)/bcache._nwrites);
+
+    Fat32::FileSys::fsck_report_t report;
+    assert(fs.fsck(false, &report) == 0);
+
+    printf("\nFSCK REPORT\n");
+    printf("Files: %u\n", report.files);
+    printf("Directories: %u\n", report.directories);
+    printf("Free clusters: %u\n", report.free_clusters);
+    printf("Referenced clusters: %u\n", report.referenced_clusters);
+    printf("Cross-links: %u\n", report.cross_links);
+    printf("Invalid refs: %u\n", report.invalid_references);
+    printf("Lost clusters: %u\n", report.lost_clusters);
+    printf("File size mismatches: %u\n", report.size_mismatches);
+    printf("Invalid directory entries: %u\n", report.invalid_entries);
+
+    close(bdev.fd);
 
     return 0;
 }

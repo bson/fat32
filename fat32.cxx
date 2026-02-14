@@ -1,5 +1,6 @@
 #include <string.h>
 #include <ctype.h>
+#include <stdlib.h>
 
 #include "fat32.h"
 
@@ -993,11 +994,11 @@ int FileSys::stat(const char *path, FileSys::Stat *st)
 }
 
 
+static const uint8_t dot[12] = ".          ";
+static const uint8_t dotdot[12] = "..         ";
+    
 int FileSys::dir_is_empty(uint32_t cluster)
 {
-    static const uint8_t dot[12] = ".          ";
-    static const uint8_t dotdot[12] = "..         ";
-    
     while (cluster < EOC) {
         uint32_t lba = cluster_to_lba(cluster);
 
@@ -1146,4 +1147,253 @@ const char* Fat32::basename(const char* path)
         return slash+1;
 
     return path;
+}
+
+// Tracks/Checks
+//
+//  *  Files
+//  *  Directories
+//  *  Cross-links
+//  *  Invalid cluster references
+//  *  Duplicate cluster use
+//  *  Directory cluster usage
+//  *  Read failures
+//  *  LFN-safe traversal
+//  *  Sector-based memory usage
+
+int FileSys::fsck(bool fix, fsck_report_t* report)
+{
+    memset(report, 0, sizeof(*report));
+
+    fsck_ctx_t ctx;
+    ctx.total_clusters = _total_clusters;
+    ctx.cluster_refcount = (uint8_t*)calloc(_total_clusters, sizeof(uint8_t));
+
+    if (!ctx.cluster_refcount)
+        return with_error(Error::FSCK_ALLOC_ERR);
+
+    report->total_clusters = _total_clusters;
+
+    /* Scan directory tree starting at root */
+    report->directories = 1;        // root is implicit
+    (void)fsck_scan_directory(&ctx, _root_cluster, fix, report);
+
+    /* Detect lost clusters */
+    for (uint32_t c = 2; c < _total_clusters; c++) {
+        uint32_t val;
+        if (!fat_get(c, &val)) {
+            if (val != 0 && ctx.cluster_refcount[c] == 0) {
+                ++report->lost_clusters;
+
+                if (fix)
+                    fat_set(c, 0);
+            }
+
+            if (val == 0)
+                report->free_clusters++;
+            else
+                report->referenced_clusters++;
+        } // else log something? add to report?
+    }
+
+    free(ctx.cluster_refcount);
+
+    return 0;
+}
+
+
+int FileSys::fsck_mark_chain(fsck_ctx_t *ctx, uint32_t start_cluster, fsck_report_t *report)
+{
+    for (uint32_t c = start_cluster; c >= 2 && c < EOC; ) {
+        if (c >= ctx->total_clusters)
+            return -1;
+
+        ++ctx->cluster_refcount[c];
+
+        if (ctx->cluster_refcount[c] > 1) {
+            ++report->cross_links;
+            return 1;
+        }
+
+        uint32_t next;
+        if (fat_get(c, &next))
+            return -1;
+
+        if (next == c) {   /* self-loop */
+            ++report->cross_links;
+            return 1;
+        }
+
+        c = next;
+    }
+
+    return 0;
+}
+
+
+int FileSys::fsck_chain_length(uint32_t start, uint32_t* len)
+{
+    uint32_t n = 0;
+    uint32_t c = start;
+
+    while (c >= 2 && c < EOC) {
+        ++n;
+        if (fat_get(c, &c))
+            return -1;
+    }
+
+    *len = n;
+    return 0;
+}
+
+
+int FileSys::fsck_scan_directory(fsck_ctx_t *ctx,
+                                 uint32_t dir_cluster,
+                                 bool fix,
+                                 fsck_report_t *report)
+{
+    uint32_t cluster = dir_cluster;
+
+    if (cluster < 2 || cluster >= _total_clusters) {
+        ++report->invalid_references;
+        return -1;
+    }
+
+    while (cluster >= 2 && cluster < EOC) {
+
+        /* Mark directory cluster itself */
+        if (cluster >= _total_clusters) {
+            ++report->invalid_references;
+            return -1;
+        }
+
+        if (ctx->cluster_refcount[cluster]) {
+            ++report->cross_links;
+            return -1;
+        }
+
+        ctx->cluster_refcount[cluster] = 1;
+
+        const uint32_t lba = cluster_to_lba(cluster);
+
+        for (uint32_t s = 0; s < _sectors_per_cluster; s++) {
+            uint8_t* sector;
+            if (load_sector(lba+s, &sector)) {
+                ++report->invalid_references;
+                return -1;
+            }
+
+            bool dirty = false;
+            for (uint32_t off = 0; off < _bytes_per_sector; off += 32) {
+                dirent_t *entry = (dirent_t*)&sector[off];
+
+                if (entry->name[0] == 0x00)
+                    return 0;
+
+                if (entry->name[0] == 0xe5)
+                    continue;
+
+                const uint8_t attr = entry->attr;
+
+                if (attr == DirentAttr::LFN || (attr & DirentAttr::VOLUME_ID))
+                    continue;
+
+                /* Skip "." and ".." */
+                if (!::memcmp(entry->name, dot, 11) || !::memcmp(entry->name, dotdot, 11))
+                    continue;
+
+                /* Extract cluster */
+                const uint32_t start_cluster = (entry->first_cluster_hi << 16) |
+                    entry->first_cluster_lo;
+
+                if (start_cluster >= _total_clusters) {
+                    ++report->invalid_entries;
+                    if (fix) {
+                        entry->name[0] = 0xe5;
+                        dirty = true;
+                    }
+                    continue;
+                }
+
+                if (attr & DirentAttr::DIRECTORY) {
+                    /* Directory */
+                    ++report->directories;
+
+                    if (start_cluster >= 2 && start_cluster < _total_clusters) {
+                        if (dirty) {
+                            if (store_sector(lba+s))
+                                return -1;
+                            dirty = false;
+                        }
+                        (void)fsck_scan_directory(ctx, start_cluster, fix, report);
+                        if (load_sector(lba+s, &sector))
+                            return -1;
+
+                    } else {
+                        ++report->invalid_references;
+                    }
+                } else {
+                    /* File */
+                    ++report->files;
+
+                    if (start_cluster >= 2 && start_cluster < _total_clusters) {
+                        if (dirty) {
+                            if (store_sector(lba+s))
+                                return -1;
+                            dirty = false;
+                        }
+                        if (fsck_mark_chain(ctx, start_cluster, report)) {
+                            ++report->invalid_references;
+                            if (load_sector(lba+s, &sector))
+                                return -1;
+                            dirty = false;
+                            if (fix) {
+                                entry->name[0] = 0xe5;
+                                dirty = true;
+                            }
+                        } else {
+                            if (load_sector(lba+s, &sector))
+                                return -1;
+                            dirty = false;
+                        }
+
+                        uint32_t chain_len;
+                        if (fsck_chain_length(start_cluster, &chain_len))
+                            return -1;
+
+                        const uint32_t cluster_bytes =
+                            chain_len * _sectors_per_cluster * _bytes_per_sector;
+
+                        if (load_sector(lba+s, &sector))
+                            return -1;
+                        dirty = false;
+
+                        if (cluster_bytes < entry->file_size) {
+                            ++report->size_mismatches;
+                            if (fix) {
+                                entry->file_size = cluster_bytes;
+                                dirty = true;
+                            }
+                        }
+
+                    } else if (start_cluster != 0) {
+                        ++report->invalid_references;
+                    }
+                }
+            }
+
+            if (dirty) {
+                if (store_sector(lba+s))
+                    return -1;
+                dirty = false;
+            }
+        }
+
+        if (fat_get(cluster, &cluster)) {
+            ++report->invalid_references;
+            return -1;
+        }
+    }
+
+    return 0;
 }

@@ -43,6 +43,7 @@ namespace Fat32 {
         DIR_NOT_EMPTY             =10, // Directory not empty
         BDEV_FLUSH_ERR            =11, // Block device flush error
         BDEV_INIT_ERR             =12, // Block device init failed (e.g. bad partition)
+        FSCK_ALLOC_ERR            =13, // fsck calloc() failed
         NUM_ERRORS
     };
 
@@ -102,6 +103,22 @@ namespace Fat32 {
 
         int mkdir(const char *path);
         int rmdir(const char *path);
+
+        typedef struct {
+            uint32_t files;
+            uint32_t directories;
+            uint32_t total_clusters;
+            uint32_t free_clusters;
+            uint32_t referenced_clusters;
+            uint32_t lost_clusters;
+            uint32_t cross_links;
+            uint32_t size_mismatches;
+            uint32_t invalid_entries;
+            uint32_t invalid_references;
+        } fsck_report_t;
+
+        // Requires heap (calloc)
+        int fsck(bool fix, fsck_report_t* report);
 
         const char* volume_label() const { return _volume_label; }
 
@@ -195,6 +212,19 @@ namespace Fat32 {
                 _last_error = err;
             return -1;
         } 
+
+    private:
+        typedef struct {
+            uint8_t *cluster_refcount;
+            uint32_t total_clusters;
+        } fsck_ctx_t;
+
+        int fsck_mark_chain(fsck_ctx_t *ctx, uint32_t start_cluster, fsck_report_t *report);
+        int fsck_chain_length(uint32_t start, uint32_t* len);
+        int fsck_scan_directory(fsck_ctx_t *ctx, uint32_t dir_cluster, bool fix,
+                                fsck_report_t *rep);
+
+
 
         // Disk structures
 
