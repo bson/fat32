@@ -1117,18 +1117,15 @@ int FileSys::mkdir(const char *path)
     dirent_t *ent = (dirent_t*)_sector;
 
     /* "." entry */
-    memset(&ent[0], 0, sizeof(*ent));
-    memset(ent[0].name, ' ', 11);
-    ent[0].name[0] = '.';
+    ::memset(&ent[0], 0, sizeof(*ent));
+    ::memcpy(ent[0].name, dot, 11);
     ent[0].attr = DirentAttr::DIRECTORY;
     ent[0].first_cluster_lo = new_cluster & 0xffff;
     ent[0].first_cluster_hi = new_cluster >> 16;
 
     /* ".." entry */
-    memset(&ent[1], 0, sizeof(*ent));
-    memset(ent[1].name, ' ', 11);
-    ent[1].name[0] = '.';
-    ent[1].name[1] = '.';
+    ::memset(&ent[1], 0, sizeof(*ent));
+    ::memcpy(ent[1].name, dotdot, 11);
     ent[1].attr = DirentAttr::DIRECTORY;
     ent[1].first_cluster_lo = parent_cluster & 0xffff;
     ent[1].first_cluster_hi = parent_cluster >> 16;
