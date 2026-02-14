@@ -1492,25 +1492,27 @@ int FileSys::fsck_scan_directory(fsck_ctx_t *ctx,
                                 return -1;
                             dirty = false;
                         }
-#endif
+
                         if (fsck_mark_chain(ctx, start_cluster, report)) {
                             ++report->invalid_references;
                             if (load_sector(lba+s, &sector))
                                 return -1;
                             dirty = false;
-#ifdef FAT32_FSCK_REPAIR
+
                             if (fix) {
                                 ++report->repairs;
                                 entry->name[0] = 0xe5;
                                 dirty = true;
                             }
-#endif
                         } else {
                             if (load_sector(lba+s, &sector))
                                 return -1;
                             dirty = false;
                         }
-
+#else
+                        if (fsck_mark_chain(ctx, start_cluster, report))
+                            ++report->invalid_references;
+#endif
                         uint32_t chain_len;
                         if (fsck_chain_length(start_cluster, &chain_len))
                             return -1;

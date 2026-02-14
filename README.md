@@ -14,7 +14,7 @@ eviction semantics and optional write-through (which I intend to use).
 If compiling with `-ffunction-sections` and `-fdata-sections`, then if linking with `-Wl,--gc-sections` the linker
 will omit all unused functions, so if you don't use truncate() for example you don't have to include the code for it.
 
-It only supports 8.3 short filenames (SFN).
+It only supports 8.3 short filenames (SFN).  While LFN mechanics aren't complicated, UTF is beyond the scope of a small library with a static footprint.  If nothing else they will need significant pure-section data tables and support functionality.  As a result, when files are created or renamed no LFNs will be created and old LFNs will remain.  They're simply ignored.  This is a significant caveat!
 
 There is currently no locking and it's not MT-safe.
 

@@ -37,3 +37,8 @@ Add fsck repair stats to the report.
 
 The data structures used all have a little-endian dependency. Is this
 even worth the bother these days?
+
+When a file is deleted or renamed, also remove its LFN entry.
+
+Consider adding 7-bit ASCII compatible LFNs and simply use '_' or '='
+for anything unprintable, or something.

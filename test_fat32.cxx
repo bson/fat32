@@ -687,6 +687,7 @@ int main(void)
     printf("Lost clusters: %u\n", report.lost_clusters);
     printf("File size mismatches: %u\n", report.size_mismatches);
     printf("Invalid directory entries: %u\n", report.invalid_entries);
+    printf("Repairs: %u\n", report.repairs);
 
     fs.sync();
 
