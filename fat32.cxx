@@ -8,9 +8,7 @@
 using namespace Fat32;
 
 // 
-// *** Crash Behavior Analysis ***
-//
-// If crash during write:
+// If there's a crash during write:
 //
 //   Crash Point	 			             Result
 //
@@ -30,6 +28,15 @@ using namespace Fat32;
 //   During FAT free                        Partial free, fsck cleans
 // 
 // Never causes another file to reference freed clusters.
+//
+// FAT Mirror behavior:
+//
+//   Condition             Mount         fsck scan         fsck repair
+//
+//   Mirrors identical      OK              OK                 OK
+//   Mirrors diverge    Mount fails      reported           repaired
+//   Mirror disabled    no compare   compare active only  repair others
+//   3+ FATs           all compared    all compared        all synced
 //
 
 static const char* error_strings[] = {
