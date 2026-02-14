@@ -53,7 +53,7 @@ static_assert((sizeof error_strings / sizeof error_strings[0]) == NUM_ERRORS,
 
 const char* FileSys::strerror(Error err) const
 {
-    if (err >= NUM_ERRORS)
+    if (err >= NUM_ERRORS || error_strings[err] == NULL)
         return "Unknown error";
 
     return error_strings[err];
@@ -1201,7 +1201,7 @@ int FileSys::fsck(bool fix, fsck_report_t* report)
 
     free(ctx.cluster_refcount);
 
-    return 0;
+    return success();
 }
 
 
