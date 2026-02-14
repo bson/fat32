@@ -1284,8 +1284,10 @@ int FileSys::fsck(bool fix, fsck_report_t* report)
             if (val != 0 && ctx.cluster_refcount[c] == 0) {
                 ++report->lost_clusters;
 #ifdef FAT32_FSCK_REPAIR
-                if (fix)
+                if (fix) {
                     fat_set(c, 0);
+                    ++report->repairs;
+                }
 #endif
             }
 
@@ -1452,6 +1454,7 @@ int FileSys::fsck_scan_directory(fsck_ctx_t *ctx,
                     ++report->invalid_entries;
 #ifdef FAT32_FSCK_REPAIR
                     if (fix) {
+                        ++report->repairs;
                         entry->name[0] = 0xe5;
                         dirty = true;
                     }
@@ -1464,11 +1467,13 @@ int FileSys::fsck_scan_directory(fsck_ctx_t *ctx,
                     ++report->directories;
 
                     if (start_cluster >= 2 && start_cluster < _total_clusters) {
+#ifdef FAT32_FSCK_REPAIR
                         if (dirty) {
                             if (store_sector(lba+s))
                                 return -1;
                             dirty = false;
                         }
+#endif
                         (void)fsck_scan_directory(ctx, start_cluster, fix, report);
                         if (load_sector(lba+s, &sector))
                             return -1;
@@ -1481,11 +1486,13 @@ int FileSys::fsck_scan_directory(fsck_ctx_t *ctx,
                     ++report->files;
 
                     if (start_cluster >= 2 && start_cluster < _total_clusters) {
+#ifdef FAT32_FSCK_REPAIR
                         if (dirty) {
                             if (store_sector(lba+s))
                                 return -1;
                             dirty = false;
                         }
+#endif
                         if (fsck_mark_chain(ctx, start_cluster, report)) {
                             ++report->invalid_references;
                             if (load_sector(lba+s, &sector))
@@ -1493,6 +1500,7 @@ int FileSys::fsck_scan_directory(fsck_ctx_t *ctx,
                             dirty = false;
 #ifdef FAT32_FSCK_REPAIR
                             if (fix) {
+                                ++report->repairs;
                                 entry->name[0] = 0xe5;
                                 dirty = true;
                             }
@@ -1518,6 +1526,7 @@ int FileSys::fsck_scan_directory(fsck_ctx_t *ctx,
                             ++report->size_mismatches;
 #ifdef FAT32_FSCK_REPAIR
                             if (fix) {
+                                ++report->repairs;
                                 entry->file_size = cluster_bytes;
                                 dirty = true;
                             }
@@ -1529,12 +1538,13 @@ int FileSys::fsck_scan_directory(fsck_ctx_t *ctx,
                     }
                 }
             }
-
+#ifdef FAT32_FSCK_REPAIR
             if (dirty) {
                 if (store_sector(lba+s))
                     return -1;
                 dirty = false;
             }
+#endif
         }
 
         if (fat_get(cluster, &cluster)) {

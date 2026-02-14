@@ -19,14 +19,7 @@ Add a no-cache hint to read/write, or an alternate version.  For
 example, when flushing large amounts of data that has been collected
 and then never using it again this would otherwise cause the entire
 sector cache to be evicted.  The flag would signify that the caller
-isn't expected to touch this data again anytime soom, if ever.
-
-Add a consistency check on startup and refuse to mount if fsck is
-needed.  Add fsck?  It'll be big and slow, but if not wanted could
-simply not be used.
-
-Check if the BPB sectors_per_fat is 0, and if so refuse to mount it.
-(This is standard practice.)
+isn't expected to touch this data again anytime soon, if ever.
 
 When adding GPT partition mapping (LBA to PBA) verify that the LBA is
 inside the bounds and not in the hidden/reserved prologue.  It might
@@ -42,4 +35,5 @@ Extend Stat to include attributes and timestamps.
 
 Add fsck repair stats to the report.
 
-The data structures used all have a little-endian dependency.
+The data structures used all have a little-endian dependency. Is this
+even worth the bother these days?
