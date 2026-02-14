@@ -45,8 +45,11 @@ static const char* error_strings[] = {
     [DIR_NOT_EMPTY]           = "Directory not empty",
     [BDEV_FLUSH_ERR]          = "Block device write error during flush",
     [BDEV_INIT_ERR]           = "Block device failed to initialize",
+    [FSCK_ALLOC_ERR]          = "Failed to allocate memory in fsck",
 };
 
+static_assert((sizeof error_strings / sizeof error_strings[0]) == NUM_ERRORS,
+    "some error is lacking a string");
 
 const char* FileSys::strerror(Error err) const
 {
