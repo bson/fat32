@@ -19,6 +19,7 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include FAT32_LOCK_IMPL_H
 #include "blockdev.h"
 
 namespace Fat32 {
@@ -71,36 +72,37 @@ namespace Fat32 {
     };
 
     class FileSys {
-        BlockDev& _bdev;
+        mutable Lock _lock;
+        BlockDev&    _bdev;
 
         // Single sector buffer.
-        uint32_t _sec_lba;      // Sector currently being staged
-        uint8_t  _sector[MAX_SECTOR_SIZE];
-        char     _tmp[256];     // For path wrangling
+        uint32_t     _sec_lba;      // Sector currently being staged
+        uint8_t      _sector[MAX_SECTOR_SIZE];
+        char         _tmp[256];     // For path wrangling
 
-        uint32_t _sectors_per_cluster;
-        uint32_t _bytes_per_sector;
-        uint32_t _reserved_sectors;
+        uint32_t     _sectors_per_cluster;
+        uint32_t     _bytes_per_sector;
+        uint32_t     _reserved_sectors;
 
-        uint32_t _fat_start_lba;
-        uint32_t _fat_size_sectors;
-        uint32_t _fat_count;
+        uint32_t     _fat_start_lba;
+        uint32_t     _fat_size_sectors;
+        uint32_t     _fat_count;
 
-        uint32_t _data_start_lba;
-        uint32_t _root_cluster;
-        uint32_t _total_clusters;
+        uint32_t     _data_start_lba;
+        uint32_t     _root_cluster;
+        uint32_t     _total_clusters;
 
-        uint32_t _fsinfo_lba;
-        uint32_t _free_cluster_count;
-        uint32_t _next_free_cluster;
+        uint32_t     _fsinfo_lba;
+        uint32_t     _free_cluster_count;
+        uint32_t     _next_free_cluster;
 
-        uint16_t _ext_flags;
-        bool     _fsinfo_valid; // fsinfo was found or was initialized
-        bool     _fsinfo_dirty; // fsinfo needs to be rewritten
+        uint16_t     _ext_flags;
+        bool         _fsinfo_valid; // fsinfo was found or was initialized
+        bool         _fsinfo_dirty; // fsinfo needs to be rewritten
 
-        char     _volume_label[12];
+        char         _volume_label[12];
 
-        Error    _last_error;
+        Error        _last_error;
 
         FileSys() = delete;
         FileSys(FileSys&) = delete;
@@ -149,9 +151,16 @@ namespace Fat32 {
         // Requires heap (calloc)
         int fsck(bool fix, fsck_report_t* report);
 
-        const char* volume_label() const { return _volume_label; }
+        const char* volume_label() const {
+            Exclusive excl_(_lock);
+            return _volume_label;
+        }
 
-        Error last_error() const { return _last_error; }
+        Error last_error() const {
+            Exclusive excl_(_lock);
+            return _last_error; 
+        }
+
         const char* strerror(Error err) const;
 
         // readdir
@@ -188,6 +197,10 @@ namespace Fat32 {
         // Open files
 
         class File {
+            // Note: lock order is always File, then FileSys.  FS will
+            // never reach up and try to lock a file, so deadlocks
+            // can't happen.
+            mutable Lock _lock;
         public:
             FileSys *_fs;
 
@@ -213,11 +226,31 @@ namespace Fat32 {
 
             // Test if anything more can be read.  Available can be
             // negative after a seek past EOF.
-            int32_t available() const { return int32_t(_file_size - _file_pos); }
-            bool eof() const { return available() <= 0; }
-            uint32_t filepos() const { return _file_pos; }
+            int32_t available() const {
+                Exclusive excl_(_lock);
+                Exclusive excl2_(_fs->_lock);
 
-            DirentAttr attributes() const { return _attr; }
+                return int32_t(_file_size - _file_pos);
+            }
+            bool eof() const {
+                Exclusive excl_(_lock);
+                Exclusive excl2_(_fs->_lock);
+
+                return available() <= 0;
+            }
+            uint32_t filepos() const {
+                Exclusive excl_(_lock);
+                Exclusive excl2_(_fs->_lock);
+
+                return _file_pos;
+            }
+
+            DirentAttr attributes() const {
+                Exclusive excl_(_lock);
+                Exclusive excl2_(_fs->_lock);
+
+                return _attr;
+            }
 
             // These return bytes read/written, or -1 on error
             int read(void *buffer, size_t len);
@@ -229,8 +262,19 @@ namespace Fat32 {
             int close() { return sync(); }
             int sync();
 
-            Error last_error() const { return _fs->last_error(); }
-            const char* strerror(Error err) const { return _fs->strerror(err);  }
+            Error last_error() const {
+                Exclusive excl_(_lock);
+                Exclusive excl2_(_fs->_lock);
+
+                return _fs->last_error();
+            }
+
+            const char* strerror(Error err) const {
+                Exclusive excl_(_lock);
+                Exclusive excl2_(_fs->_lock);
+
+                return _fs->strerror(err);
+            }
 
         private:
             // Make sure a specific cluster exists, extending the file if necessary

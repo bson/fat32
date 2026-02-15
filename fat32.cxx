@@ -322,6 +322,8 @@ no_label:
 
 int FileSys::mount()
 {
+    Exclusive excl_(_lock);
+
     if (_bdev.init())
         return with_error(Error::BDEV_INIT_ERR);
 
@@ -434,6 +436,8 @@ int FileSys::mount()
 
 int FileSys::sync()
 {
+    Exclusive excl_(_lock);
+
     if (!_fsinfo_valid || !_fsinfo_dirty)
         return success();
 
@@ -741,6 +745,8 @@ int FileSys::File::update_dirent_size_time()
 
 int FileSys::open(const char *path, FileSys::File *file)
 {
+    Exclusive excl_(_lock);
+
     uint32_t dir_cluster;
 
     const char* p = *path == '/' ? path + 1 : path;
@@ -774,6 +780,9 @@ int FileSys::fat_cluster_at(uint32_t start_cluster, uint32_t index, uint32_t* cl
 
 int FileSys::File::read(void *buffer, size_t len) 
 {
+    Exclusive excl_(_lock);
+    Exclusive excl2_(_fs->_lock);
+
     if (_file_pos >= _file_size)
         return _fs->success();
 
@@ -821,6 +830,9 @@ int FileSys::File::read(void *buffer, size_t len)
 
 int FileSys::File::write(const void *buffer, size_t len)
 {
+    Exclusive excl_(_lock);
+    Exclusive excl2_(_fs->_lock);
+
     const uint8_t *in = (const uint8_t*)buffer;
 
     uint32_t remaining = len;
@@ -872,6 +884,9 @@ int FileSys::File::write(const void *buffer, size_t len)
 
 int FileSys::File::truncate(uint32_t new_size)
 {
+    Exclusive excl_(_lock);
+    Exclusive excl2_(_fs->_lock);
+
     const uint32_t cl_size = _fs->cluster_size();
 
     /* No-op */
@@ -962,6 +977,9 @@ int FileSys::File::truncate(uint32_t new_size)
 
 int FileSys::File::lseek(int32_t offset, SeekOp whence)
 {
+    Exclusive excl_(_lock);
+    Exclusive excl2_(_fs->_lock);
+
     uint32_t new_pos;
 
     switch (whence) {
@@ -988,6 +1006,8 @@ int FileSys::File::lseek(int32_t offset, SeekOp whence)
 
 int FileSys::unlink(const char *path)
 {
+    Exclusive excl_(_lock);
+
     File file;
 
     if (open(path, &file))
@@ -1011,12 +1031,17 @@ int FileSys::unlink(const char *path)
 
 int FileSys::File::sync()
 {
+    Exclusive excl_(_lock);
+    Exclusive excl2_(_fs->_lock);
+
     return update_dirent_size_time();
 }
 
 
 int FileSys::create(const char *path, FileSys::File *file)
 {
+    Exclusive excl_(_lock);
+
     File f;
 
     /* Fail if exists */
@@ -1076,6 +1101,8 @@ int FileSys::create(const char *path, FileSys::File *file)
 
 int FileSys::rename(const char *from_path, const char* to_path)
 {
+    Exclusive excl_(_lock);
+
     // First form dest filename to make sure it's sensible
     const char* name = ::strrchr(to_path, '/');
     if (name)
@@ -1174,6 +1201,8 @@ int FileSys::dir_is_empty(uint32_t cluster)
 
 int FileSys::mkdir(const char *path)
 {
+    Exclusive excl_(_lock);
+
     File f;
 
     /* Fail if exists */
@@ -1264,6 +1293,8 @@ int FileSys::mkdir(const char *path)
 
 int FileSys::rmdir(const char *path)
 {
+    Exclusive excl_(_lock);
+
     File f;
 
     if (open(path, &f))
@@ -1319,6 +1350,8 @@ const char* Fat32::basename(const char* path)
 
 int FileSys::fsck(bool fix, fsck_report_t* report)
 {
+    Exclusive excl_(_lock);
+
     memset(report, 0, sizeof(*report));
 
     fsck_ctx_t ctx;
@@ -1671,6 +1704,8 @@ int FileSys::fat_copy(uint32_t src, uint32_t dst)
 
 int FileSys::opendir(const char *path, FileSys::DIR *dir)
 {
+    Exclusive excl_(_lock);
+
     memset(dir, 0, sizeof(*dir));
 
     dir->_fs = this;
@@ -1701,6 +1736,8 @@ int FileSys::opendir(const char *path, FileSys::DIR *dir)
 
 int FileSys::DIR::readdir(entry_t *out)
 {
+    Exclusive excl_(_fs->_lock);
+
     while (_current_cluster >= 2 && _current_cluster < EOC) {
         const uint32_t lba = _fs->cluster_to_lba(_current_cluster);
 
@@ -1764,5 +1801,6 @@ int FileSys::DIR::readdir(entry_t *out)
 
 void FileSys::DIR::closedir()
 {
+    Exclusive excl_(_fs->_lock);     // Just serialize
     (void)this;
 }
