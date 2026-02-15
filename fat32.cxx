@@ -23,7 +23,12 @@
 
 #include "fat32.h"
 
+
 using namespace Fat32;
+
+#ifdef FAT32_DATE_AND_TIME
+int fat32_now(uint16_t* fat_date, uint16_t* fat_time);
+#endif
 
 // 
 // If there's a crash during write:
@@ -533,6 +538,17 @@ int FileSys::dir_find(uint32_t cluster,
                             ((uint32_t)ent[i].first_cluster_hi << 16)
                             | ent[i].first_cluster_lo;
 
+#ifdef FAT32_DATE_AND_TIME
+                        file->_creation_time_tenth = ent[i].creation_time_tenth;
+                        file->_creation_time = ent[i].creation_time;
+                        file->_creation_date = ent[i].creation_date;
+
+                        uint16_t t;
+                        (void)fat32_now(&file->_last_access_date, &t);
+
+                        file->_write_time = ent[i].write_time;
+                        file->_write_date = ent[i].write_date;
+#endif
                         file->_current_cluster = file->_first_cluster;
 
                         file->_file_size  = ent[i].file_size;
@@ -541,6 +557,7 @@ int FileSys::dir_find(uint32_t cluster,
                         file->_dir_offset = i * sizeof(*ent);
                         file->_attr       = ent[i].attr;
                         file->_fs = this;
+
                         return success();
                     }
                 }
@@ -700,7 +717,7 @@ int FileSys::File::ensure_cluster_index(uint32_t needed_index, uint32_t *out_clu
 }
 
 
-int FileSys::File::update_dirent_size() 
+int FileSys::File::update_dirent_size_time() 
 {
     uint8_t* sector;
     if (_fs->load_sector(_dir_lba, &sector))
@@ -709,6 +726,15 @@ int FileSys::File::update_dirent_size()
     dirent_t *ent = (dirent_t*)&sector[_dir_offset];
 
     ent->file_size = _file_size;
+    
+#ifdef FAT32_DATE_AND_TIME
+    ent->creation_time_tenth = _creation_time_tenth;
+    ent->creation_time       = _creation_time;
+    ent->creation_date       = _creation_date;
+    ent->last_access_date    = _last_access_date;
+    ent->write_time          = _write_time;
+    ent->write_date          = _write_date;
+#endif
 
     return _fs->store_sector(_dir_lba);
 }
@@ -785,6 +811,9 @@ int FileSys::File::read(void *buffer, size_t len)
         total_read += to_copy;
         _file_pos = min(_file_pos + to_copy, _file_size);
     }
+
+    uint16_t t;
+    fat32_now(&_last_access_date, &t);
 
     (void)_fs->success();
     return total_read;
@@ -878,7 +907,11 @@ int FileSys::File::truncate(uint32_t new_size)
         _file_size = new_size;
         _file_pos = min(_file_pos, new_size);
 
-        return update_dirent_size();
+#ifdef FAT32_DATE_AND_TIME
+        fat32_now(&_write_date, &_write_time);
+        _last_access_date = _write_date;
+#endif
+        return update_dirent_size_time();
     }
 
     /* ---------------- GROW ---------------- */
@@ -919,7 +952,12 @@ int FileSys::File::truncate(uint32_t new_size)
     }
 
     _file_size = new_size;
-    return update_dirent_size();
+
+#ifdef FAT32_DATE_AND_TIME
+        fat32_now(&_write_date, &_write_time);
+        _last_access_date = _write_date;
+#endif
+    return update_dirent_size_time();
 }
 
 
@@ -974,7 +1012,7 @@ int FileSys::unlink(const char *path)
 
 int FileSys::File::sync()
 {
-    return update_dirent_size();
+    return update_dirent_size_time();
 }
 
 
@@ -1017,6 +1055,14 @@ int FileSys::create(const char *path, FileSys::File *file)
     ent->first_cluster_lo = cluster & 0xffff;
     ent->first_cluster_hi = cluster >> 16;
     ent->file_size = 0;
+#ifdef FAT32_DATE_AND_TIME
+    (void)fat32_now(&ent->creation_date, &ent->creation_time);
+
+    ent->creation_time_tenth = 0;
+    ent->write_date = ent->creation_date;
+    ent->write_time = ent->creation_time;
+    ent->last_access_date = ent->creation_date;
+#endif
 
     /* crash ordering:
        cluster already marked allocated
@@ -1084,31 +1130,6 @@ int FileSys::rename(const char *from_path, const char* to_path)
     *(dirent_t*)&sector[off] = old_entry;
     if (store_sector(lba))
         return -1;
-
-    return success();
-}
-
-
-int FileSys::stat(const char *path, FileSys::Stat *st)
-{
-    File f;
-
-    if (open(path, &f))
-        return -1;
-
-    st->_size = f._file_size;
-    st->_first_cluster = f._first_cluster;
-    st->_attributes = DirentAttr::NONE;
-
-    /* reload directory entry */
-    uint8_t* sector;
-    _sec_lba = ~uint32_t(0);
-    if (load_sector(f._dir_lba, &sector))
-        return -1;
-    
-    const dirent_t *ent = (dirent_t*)(sector + f._dir_offset);
-
-    st->_attributes = ent->attr;
 
     return success();
 }
@@ -1191,10 +1212,18 @@ int FileSys::mkdir(const char *path)
     ent[0].first_cluster_lo = new_cluster & 0xffff;
     ent[0].first_cluster_hi = new_cluster >> 16;
 
+#ifdef FAT32_DATE_AND_TIME
+    (void)fat32_now(&ent[0].creation_date, &ent[0].creation_time);
+
+    ent[0].creation_time_tenth = 0;
+    ent[0].write_date = ent[0].creation_date;
+    ent[0].write_time = ent[0].creation_time;
+    ent[0].last_access_date = ent[0].creation_date;
+#endif
+
     /* ".." entry */
-    ::memset(&ent[1], 0, sizeof(*ent));
+    ent[1] = ent[0];
     ::memcpy(ent[1].name, dotdot, 11);
-    ent[1].attr = DirentAttr::DIRECTORY;
     ent[1].first_cluster_lo = parent_cluster & 0xffff;
     ent[1].first_cluster_hi = parent_cluster >> 16;
 
@@ -1217,6 +1246,15 @@ int FileSys::mkdir(const char *path)
     slot->first_cluster_lo = new_cluster & 0xffff;
     slot->first_cluster_hi = new_cluster >> 16;
     slot->file_size = 0;
+
+#ifdef FAT32_DATE_AND_TIME
+    (void)fat32_now(&slot->creation_date, &slot->creation_time);
+
+    slot->creation_time_tenth = 0;
+    slot->write_date = ent[0].creation_date;
+    slot->write_time = ent[0].creation_time;
+    slot->last_access_date = ent[0].creation_date;
+#endif
 
     if (store_sector(slot_lba))
         return -1;

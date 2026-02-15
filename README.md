@@ -29,3 +29,5 @@ It really only is assumed to work with 512-byte sectored storage devices. It's p
 There are a few build options:
  * `-DFAT32_STRICT_MOUNT=1` - makes `mount()` perform integrity checks as its last mount step.  If these fail it returns -1 and sets the last error to `FS_NEEDS_REPAIR`.  It's still mounted and usable, and can be repaired.  The reason for this to be a build option is that it adds a dependency on the rather sizeable `fsck()` and increases mount times.
  * `-DFAT32_FSCK_REPAIR=1` - `fsck()` has an argument to fix problems (repair).  Unless this #defined the `fix` argument ignored and `fsck()` will be built to only check.  This shrinks the footprint and is useful if the target system is never intended to perform repairs but just refuse to use a dirty FS.
+ * `-DFAT32_DATE_AND_TIME=1` - adds date and time management.  Needs a global function `void fat32_now(uint16_t* fat_date, uint16_t* fat_time)` that returns the current date and time in FAT format.  This is system specific.  test_fat32 has a POSIX implementation.  FAT uses the local system time, not UTC.
+ 

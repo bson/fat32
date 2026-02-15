@@ -17,9 +17,9 @@
 //
 
 #pragma once
-#include "blockdev.h"
 #include <stdint.h>
 #include <stddef.h>
+#include "blockdev.h"
 
 namespace Fat32 {
 
@@ -107,7 +107,6 @@ namespace Fat32 {
 
     public:
         class File;
-        class Stat;
 
         FileSys(BlockDev& bdev)
             : _bdev(bdev), _sec_lba(~uint32_t(0))
@@ -121,8 +120,6 @@ namespace Fat32 {
 
         // Checkpoint FS state (currently only PSINFO) if dirty
         int sync();
-
-        int stat(const char *path, Stat *st);
 
         // Must exist: will not create
         int open(const char *path, File *file);
@@ -194,6 +191,17 @@ namespace Fat32 {
         public:
             FileSys *_fs;
 
+            DirentAttr _attr;
+
+#ifdef FAT32_DATE_AND_TIME
+            uint8_t  _creation_time_tenth;
+            uint16_t _creation_time;
+            uint16_t _creation_date;
+            uint16_t _last_access_date;
+            uint16_t _write_time;
+            uint16_t _write_date;
+#endif
+
             uint32_t _first_cluster;
             uint32_t _current_cluster;
 
@@ -202,8 +210,6 @@ namespace Fat32 {
 
             uint32_t _dir_lba;
             uint32_t _dir_offset;
-
-            DirentAttr _attr;
 
             // Test if anything more can be read.  Available can be
             // negative after a seek past EOF.
@@ -230,17 +236,10 @@ namespace Fat32 {
             // Make sure a specific cluster exists, extending the file if necessary
             int ensure_cluster_index(uint32_t needed_index, uint32_t* out_cluster);
 
-            // Update directory entry size field
-            int update_dirent_size();
+            // Update directory entry size and timestamp fields
+            int update_dirent_size_time();
         };
 
-
-        class Stat {
-        public:
-            uint32_t _size;
-            uint32_t _first_cluster;
-            DirentAttr _attributes;
-        };
 
     protected:
         friend class Fat32;

@@ -37,6 +37,14 @@
 # this program. If not, see <http://www.gnu.org/licenses/>
 #
 
+# To mount a partition, use
+#   sudo kpartx -v -a image.img
+#   mkdir -p tmp && sudo mount /dev/mapper/loop0p1 mnt
+#
+# To unmount:
+#   sudo umount mnt
+#   sudo kpartx -v -d image.img
+
 set -e
 
 usage() {

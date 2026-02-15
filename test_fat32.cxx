@@ -25,6 +25,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <assert.h>
+#include <time.h>
 #include <errno.h>
 
 #include "blockdev.h"
@@ -101,6 +102,122 @@ public:
 };
 
 
+// FAT date and time conversion
+
+int fat_time_from_posix(time_t t,
+                        uint16_t *fat_date,
+                        uint16_t *fat_time)
+{
+    if (!fat_date || !fat_time)
+        return -1;
+
+    struct tm tm;
+    if (localtime_r(&t, &tm) == NULL)
+        return -1;
+
+    int year = tm.tm_year + 1900;
+
+    if (year < 1980 || year > 2107)
+        return -1;   /* strict: no clamping */
+
+    if (tm.tm_mon < 0 || tm.tm_mon > 11)
+        return -1;
+    if (tm.tm_mday < 1 || tm.tm_mday > 31)
+        return -1;
+    if (tm.tm_hour < 0 || tm.tm_hour > 23)
+        return -1;
+    if (tm.tm_min < 0 || tm.tm_min > 59)
+        return -1;
+    if (tm.tm_sec < 0 || tm.tm_sec > 60)  /* allow leap second */
+        return -1;
+
+    uint16_t date =
+        ((year - 1980) << 9) |
+        ((tm.tm_mon + 1) << 5) |
+        (tm.tm_mday);
+
+    uint16_t time_field =
+        (tm.tm_hour << 11) |
+        (tm.tm_min  << 5)  |
+        ((tm.tm_sec / 2) & 0x1F);  /* 2-second resolution */
+
+    *fat_date = date;
+    *fat_time = time_field;
+
+    return 0;
+}
+
+
+int fat_time_to_posix(uint16_t fat_date,
+                      uint16_t fat_time,
+                      time_t *out)
+{
+    if (!out)
+        return -1;
+
+    if (fat_date == 0)
+        return -1;  /* strict: treat zero as invalid */
+
+    int year  = ((fat_date >> 9) & 0x7F) + 1980;
+    int month = (fat_date >> 5) & 0x0F;
+    int day   = fat_date & 0x1F;
+
+    int hour  = (fat_time >> 11) & 0x1F;
+    int min   = (fat_time >> 5)  & 0x3F;
+    int sec   = (fat_time & 0x1F) * 2;
+
+    if (year < 1980 || year > 2107)
+        return -1;
+    if (month < 1 || month > 12)
+        return -1;
+    if (day < 1 || day > 31)
+        return -1;
+    if (hour > 23 || min > 59 || sec > 59)
+        return -1;
+
+    struct tm tm;
+    memset(&tm, 0, sizeof(tm));
+
+    tm.tm_year = year - 1900;
+    tm.tm_mon  = month - 1;
+    tm.tm_mday = day;
+    tm.tm_hour = hour;
+    tm.tm_min  = min;
+    tm.tm_sec  = sec;
+    tm.tm_isdst = -1;  /* let libc determine DST */
+
+    time_t t = mktime(&tm);
+    if (t == (time_t)-1)
+        return -1;
+
+    /* Re-validate: ensure mktime didn’t normalize invalid date */
+    struct tm verify;
+    if (localtime_r(&t, &verify) == NULL)
+        return -1;
+
+    if (verify.tm_year != tm.tm_year ||
+        verify.tm_mon  != tm.tm_mon  ||
+        verify.tm_mday != tm.tm_mday ||
+        verify.tm_hour != tm.tm_hour ||
+        verify.tm_min  != tm.tm_min  ||
+        verify.tm_sec  != tm.tm_sec)
+    {
+        return -1;  /* invalid calendar value (e.g., Feb 30) */
+    }
+
+    *out = t;
+    return 0;
+}
+
+
+// Global used by Fat32 for the current timestamp
+
+void fat32_now(uint16_t* fat_date, uint16_t* fat_time)
+{
+    fat_time_from_posix(time(NULL), fat_date, fat_time);
+}
+
+
 /* ================= TEST HELPERS ================= */
 
 void die(const char *msg)
@@ -174,7 +291,6 @@ void test_stat(Fat32::FileSys *fs)
     const char *filename = "statfile.txt";
     const char *data = "Stat test data";
     Fat32::FileSys::File f;
-    Fat32::FileSys::Stat st;
 
     /* Ensure file does not exist */
     fs->unlink(filename);
@@ -183,10 +299,11 @@ void test_stat(Fat32::FileSys *fs)
     assert(fs->create(filename, &f) == 0);
 
     /* Initial stat */
-    assert(fs->stat(filename, &st) == 0);
-    assert(st._size == 0);
+    Fat32::FileSys::File st;
+    assert(fs->open(filename, &st) == 0);
+    assert(st._file_size == 0);
     assert(st._first_cluster >= 2);
-    assert((st._attributes & Fat32::DirentAttr::DIRECTORY) == 0);
+    assert((st.attributes() & Fat32::DirentAttr::DIRECTORY) == 0);
 
     /* Write data */
     assert(fs->open(filename, &f) == 0);
@@ -194,20 +311,20 @@ void test_stat(Fat32::FileSys *fs)
     assert(f.close() == 0);
 
     /* Stat again */
-    assert(fs->stat(filename, &st) == 0);
-    assert(st._size == strlen(data));
+    assert(fs->open(filename, &st) == 0);
+    assert(st._file_size == strlen(data));
     assert(st._first_cluster >= 2);
 
     /* Reopen and verify stat consistent */
     assert(fs->open(filename, &f) == 0);
-    assert(f._file_size == st._size);
+    assert(f._file_size == st._file_size);
     assert(f.close() == 0);
 
     /* Delete */
     assert(fs->unlink(filename) == 0);
 
-    /* Stat must now fail */
-    assert(fs->stat(filename, &st) != 0);
+    /* open must now fail */
+    assert(fs->open(filename, &st) != 0);
 
     printf("  Fat32::stat passed\n");
 }
@@ -296,8 +413,8 @@ void test_seek_beyond_eof_write(Fat32::FileSys* fs)
     assert(f.lseek(10, Fat32::SeekOp::SET) == 0);
     assert(f.write("X", 1) == 1);
 
-    Fat32::FileSys::Stat st;
-    assert(fs->stat(name, &st) == 0);
+    Fat32::FileSys::File st;
+    assert(fs->open(name, &st) == 0);
 
     assert(f.lseek(0, Fat32::SeekOp::SET) == 0);
     assert(f.read(buf, 11) == 11);
@@ -363,9 +480,9 @@ void test_truncate_zero(Fat32::FileSys* fs)
 
     assert(f.truncate(0) == 0);
 
-    Fat32::FileSys::Stat st;
-    assert(fs->stat(name, &st) == 0);
-    assert(st._size == 0);
+    Fat32::FileSys::File st;
+    assert(fs->open(name, &st) == 0);
+    assert(st._file_size == 0);
 
     assert(f.close() == 0);
 }
@@ -374,7 +491,7 @@ void test_truncate_zero(Fat32::FileSys* fs)
 void test_rename(Fat32::FileSys* fs)
 {
     Fat32::FileSys::File f;
-    Fat32::FileSys::Stat st;
+    Fat32::FileSys::File st;
     char buf[32];
 
     const char *oldname = "oldname.txt";
@@ -395,11 +512,11 @@ void test_rename(Fat32::FileSys* fs)
     assert(fs->rename(oldname, newname) == 0);
 
     /* Old must not exist */
-    assert(fs->stat(oldname, &st) != 0 && fs->last_error() == Fat32::Error::FILE_NOT_FOUND);
+    assert(fs->open(oldname, &st) != 0 && fs->last_error() == Fat32::Error::FILE_NOT_FOUND);
 
     /* New must exist */
-    assert(fs->stat(newname, &st) == 0);
-    assert(st._size == 11);
+    assert(fs->open(newname, &st) == 0);
+    assert(st._file_size == 11);
 
     /* Verify contents */
     assert(fs->open(newname, &f) == 0);
@@ -413,7 +530,7 @@ void test_rename(Fat32::FileSys* fs)
 void test_cross_directory_rename(Fat32::FileSys* fs)
 {
     Fat32::FileSys::File f;
-    Fat32::FileSys::Stat st;
+    Fat32::FileSys::File st;
     char buf[64];
 
     const char *dir1 = "dirA";
@@ -442,11 +559,11 @@ void test_cross_directory_rename(Fat32::FileSys* fs)
     assert(fs->rename(oldpath, newpath) == 0);
 
     /* Old must not exist */
-    assert(fs->stat(oldpath, &st) != 0 && fs->last_error() == Fat32::Error::FILE_NOT_FOUND);
+    assert(fs->open(oldpath, &st) != 0 && fs->last_error() == Fat32::Error::FILE_NOT_FOUND);
     
     /* New must exist */
-    assert(fs->stat(newpath, &st) == 0);
-    assert(st._size == 15);
+    assert(fs->open(newpath, &st) == 0);
+    assert(st._file_size == 15);
 
     /* Verify content */
     assert(fs->open(newpath, &f) == 0);
