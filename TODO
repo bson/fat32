@@ -1,11 +1,3 @@
-Extract timestamps to File. Just put all the relevant info in File.
-After all, it's perfectly possible to open a directory or hidden file.
-Return FAT-style timestamps. Update on read/write.  Add a sync()
-method to update this on disk and call it on close.  Also update
-hidden and RO attributes on close.
-
-Implement a GPT LBA-to-PBA mapper, as a pass-through BlockDev.
-
 Refactor test_fat32 a bit so it can be built for firmware (with a
 suitable block device, like an SD or CF card and driver) and run on a
 target platform.
@@ -27,18 +19,6 @@ and then never using it again this would otherwise cause the entire
 sector cache to be evicted.  The flag would signify that the caller
 isn't expected to touch this data again anytime soon, if ever.
 
-When adding GPT partition mapping (LBA to PBA) verify that the LBA is
-inside the bounds and not in the hidden/reserved prologue.  It might
-also be possible to refuse to write to the BPB or FSINFO without using
-a specific function to do so, to prevent accidental corruption.  Either
-way, a write to LBA 0 or such should cause an error code that tells
-the caller there is corruption and that fsck should be run.
-
-Verify that the partition is between 32MB and 32TB.  Especially the
-lower limit is a hard stop for FAT32.
-
-Extend Stat to include attributes and timestamps.
-
 The data structures used all have a little-endian dependency. Is this
 even worth the bother these days?
 
@@ -48,4 +28,3 @@ Consider adding 7-bit ASCII compatible LFNs and simply use '_' or '='
 for anything unprintable, or something.
 
 Create a function to return the low-high cluster field in a dirent.
-

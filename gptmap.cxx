@@ -128,13 +128,12 @@ int Table::load()
 
     while (entry_count-- > 0) {
         if (_bdev.read_blocks(lba + sector++, 1, _sector))
-            return -6;
+            return -5;
 
         const gpt_entry_raw_t* raw = (const gpt_entry_raw_t*)_sector;
 
         while ((uint8_t*)raw < _sector + sizeof _sector) {
-            if (raw->type_guid[0] || raw->type_guid[1] || raw->type_guid[2]
-                || raw->type_guid[3]) {
+            if (raw->type_guid[0] || raw->type_guid[1] || raw->type_guid[2] || raw->type_guid[3]) {
                 gpt_partition_t *p = &_table.entries[_table.count++];
 
                 ::memcpy(p->type_guid, raw->type_guid, 16);

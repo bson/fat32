@@ -57,27 +57,41 @@ namespace GPTMap {
     // Mapper
     class Mapper: public BlockDev {
         BlockDev&        _bdev;
+        uint32_t         _first_lba;
+        uint32_t         _last_lba;
         gpt_partition_t& _partition;
         
     public:
         Mapper(BlockDev& bdev, gpt_partition_t& part)
-            : _bdev(bdev), _partition(part)
-        {
-        }
+            : _bdev(bdev), _partition(part),
+              _first_lba(part.first_lba), _last_lba(part.last_lba)
+        { }
 
         int init() {
             if (_bdev.sector_size() != SECTOR_SIZE)
+                return -1;
+
+            // We're limited to 32-bit LBAs, or 2TB with 512-byte sectoring.
+            if (_partition.last_lba >> 32)
                 return -1;
 
             return 0;
         }
 
         int read_blocks(uint32_t lba, uint32_t count, void *buffer) {
-            return _bdev.read_blocks(_partition.first_lba + lba, count, buffer);
+            lba += _first_lba;
+            if (lba < _first_lba || lba + count > _last_lba)  // < means it wrapped
+                return -1;
+
+            return _bdev.read_blocks(lba, count, buffer);
         }
 
         int write_blocks(uint32_t lba, uint32_t count, const void *buffer) {
-            return _bdev.write_blocks(_partition.first_lba + lba, count, buffer);
+            lba += _first_lba;
+            if (lba < _first_lba || lba + count > _last_lba)
+                return -1;
+
+            return _bdev.write_blocks(lba, count, buffer);
         }
 
         int flush() { return _bdev.flush(); }
