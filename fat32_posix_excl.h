@@ -42,10 +42,10 @@ namespace Fat32 {
     public:
         ScopedLock(const volatile T& l) : _lock(l) { _lock.acquire(); }
         ~ScopedLock() { _lock.release(); }
-    private:
-        ScopedLock();
-        ScopedLock(const ScopedLock&);
-        ScopedLock& operator=(const ScopedLock&);
+
+        ScopedLock() = delete;
+        ScopedLock(const ScopedLock&) = delete;
+        ScopedLock& operator=(const ScopedLock&) = delete;
     };
 
 
@@ -72,7 +72,7 @@ namespace Fat32 {
             ::pthread_mutex_init(&_m, &attrs);
         }
 
-        virtual ~Lock() { ::pthread_mutex_destroy(&_m); }
+        ~Lock() { ::pthread_mutex_destroy(&_m); }
 
         void assert_locked() volatile const {
 #ifdef FAT32_LOCK_DEBUG
@@ -112,10 +112,9 @@ namespace Fat32 {
             ::pthread_mutex_unlock((::pthread_mutex_t*)&_m); 
         }
 
-    private:
         // These make no sense
-        Lock(const volatile Lock&);
-        Lock& operator=(const volatile Lock&);
+        Lock(const volatile Lock&) = delete;
+        Lock& operator=(const volatile Lock&) = delete;
     };
 
     typedef ScopedLock<Lock> Exclusive;
