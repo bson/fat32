@@ -14,8 +14,9 @@
 # Uses mkfs.vfat instead of mformat.
 #
 # Note: while the disk image is FAT32, the partition created is
-# actually of the type EFI System; i.e., where the EFI boot loaders
-# etc live.  So it may not be mountable.
+# actually of the type EFI System.  Often the type is either this or
+# MS Basic Data, and probing is needed to identify it as FAT32.  This
+# is an important test case as it exercises probing functionality.
 #
 
 # Create a FAT32 disk image from the contents of a directory.

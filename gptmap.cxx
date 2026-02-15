@@ -226,11 +226,20 @@ int Table::load()
         }
     }
 
-    // Autodetect FAT32 - they can hide inside a variety of types..
+    // Autodetect FAT32 by probing
     // Do this outside the loop above as it clobbers _sector.
     for (int i = 0; i < _table.count; i++) {
-        if (partition_is_fat32(_table.entries[i].first_lba))
-            _table.entries[i].type = TYPE_FAT32;
+        switch (_table.entries[i].type) {
+        case TYPE_EFI_SYSTEM:
+        case TYPE_MS_BASIC_DATA:
+
+            if (partition_is_fat32(_table.entries[i].first_lba))
+                _table.entries[i].type = TYPE_FAT32;
+            break;
+
+        default:
+            ;
+        }
     }
 
     return 0;
