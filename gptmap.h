@@ -1,0 +1,124 @@
+#pragma once
+#include <stdint.h>
+#include "blockdev.h"
+
+
+namespace GPTMap {
+
+    enum : uint32_t { GPT_HEADER_LBA = 1 };
+    enum : uint64_t { GPT_SIGNATURE = 0x5452415020494645ULL };  /* "EFI PART" */
+    enum : uint16_t { GPT_MAX_PARTITIONS = 128 };
+    enum : uint16_t { GPT_NAME_LEN = 36 }; /* UTF-16 code units */
+    enum : int { MAX_PARTITIONS = 8 };
+    enum : uint16_t { SECTOR_SIZE = 512 };
+
+    typedef struct {
+        uint8_t  type_guid[16];
+        uint8_t  guid[16];
+        uint64_t first_lba;
+        uint64_t last_lba;
+        uint64_t attributes;
+        char     name[73];  /* UTF-8, worst case 2 bytes per UTF-16 + null */
+        uint32_t entry_index;
+    } gpt_partition_t;
+
+    typedef struct {
+        int             count;
+        gpt_partition_t entries[MAX_PARTITIONS];
+    } gpt_table_t;
+
+
+    // Partition table
+    class Table {
+        BlockDev&   _bdev;
+        uint8_t     _sector[512];
+        gpt_table_t _table;
+        
+    public:
+        Table(BlockDev& bdev)
+            : _bdev(bdev)
+        {
+            _table.count = 0;
+        }
+
+        static const uint8_t* fat32_guid[16];
+
+        // Load table
+        int load();
+
+        // Number of partitions
+        int count() const { return _table.count; }
+
+        // Return partition data by index
+        gpt_partition_t& get(int n) { return _table.entries[n]; }
+    };
+
+
+    // Mapper
+    class Mapper: public BlockDev {
+        BlockDev&        _bdev;
+        gpt_partition_t& _partition;
+        
+    public:
+        Mapper(BlockDev& bdev, gpt_partition_t& part)
+            : _bdev(bdev), _partition(part)
+        {
+        }
+
+        int init() {
+            if (_bdev.sector_size() != SECTOR_SIZE)
+                return -1;
+
+            return 0;
+        }
+
+        int read_blocks(uint32_t lba, uint32_t count, void *buffer) {
+            return _bdev.read_blocks(_partition.first_lba + lba, count, buffer);
+        }
+
+        int write_blocks(uint32_t lba, uint32_t count, const void *buffer) {
+            return _bdev.write_blocks(_partition.first_lba + lba, count, buffer);
+        }
+
+        int flush() { return _bdev.flush(); }
+
+        uint32_t sector_size() const { return SECTOR_SIZE; }
+    };
+
+
+    // Header
+
+#pragma pack(push,1)
+    typedef struct {
+        uint64_t signature;
+        uint32_t revision;
+        uint32_t header_size;
+        uint32_t header_crc32;
+        uint32_t reserved;
+        uint64_t current_lba;
+        uint64_t backup_lba;
+        uint64_t first_usable_lba;
+        uint64_t last_usable_lba;
+        uint8_t  disk_guid[16];
+        uint64_t partition_entry_lba;
+        uint32_t num_partition_entries;
+        uint32_t sizeof_partition_entry;
+        uint32_t partition_array_crc32;
+    } gpt_header_t;
+
+    typedef struct {
+        uint8_t  type_guid[16];
+        uint8_t  guid[16];
+        uint64_t first_lba;
+        uint64_t last_lba;
+        uint64_t attributes;
+        uint16_t name[GPT_NAME_LEN];
+    } gpt_entry_raw_t;
+#pragma pack(pop)
+
+
+    template <typename T1, typename T2>
+    T1 min(const T1& a, const T2& b) {
+        return a < (T1)b ? a : (T1)b;
+    }
+}; // ns GPTMap

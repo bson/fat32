@@ -31,6 +31,7 @@
 #include "blockdev.h"
 #include "fat32.h"
 #include "cache.h"
+#include "gptmap.h"
 
 /*
  * dd if=/dev/zero of=test.img bs=1M count=16
@@ -775,16 +776,24 @@ void test_readdir(Fat32::FileSys* fs)
 
 int main(void)
 {
-    PosixBlockDev bdev;
-    CacheBlockDev bcache(bdev, false);
+//    assert(system("dd if=/dev/zero of=test.img bs=1M count=32 && "
+//                  "mkfs.vfat -F 32 -n \"FAT32 Test\" " TEST_IMAGE) == 0);
 
-    assert(system("dd if=/dev/zero of=test.img bs=1M count=32 && "
-                  "mkfs.vfat -F 32 -n \"FAT32 Test\" " TEST_IMAGE) == 0);
+    assert(system("./dir2fat32-esp " TEST_IMAGE " 64") == 0);
+
+    PosixBlockDev bdev;
 
     bdev.fd = ::open(TEST_IMAGE, O_RDWR);
     if (bdev.fd < 0)
         die("open test image");
 
+    GPTMap::Table gpt(bdev);
+    
+    assert(gpt.load() == 0);
+    assert(gpt.count() == 1);
+
+    GPTMap::Mapper mapper(bdev, gpt.get(0));
+    CacheBlockDev bcache(mapper, false);
     Fat32::FileSys fs(bcache);
 
     test_mount(&fs);
