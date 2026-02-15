@@ -12,13 +12,25 @@ namespace GPTMap {
     enum : int { MAX_PARTITIONS = 8 };
     enum : uint16_t { SECTOR_SIZE = 512 };
 
+    enum GuidType: uint16_t {
+        TYPE_UNKNOWN = 0,
+        TYPE_EFI_SYSTEM,        // EFI System Partition
+        TYPE_FAT32,             // FAT32
+        TYPE_MS_BASIC_DATA,
+        TYPE_LINUX_FILESYSTEM,
+        TYPE_LINUX_SWAP,
+        TYPE_BIOS_BOOT,
+        NUM_TYPES
+    };
+
     typedef struct {
         uint8_t  type_guid[16];
         uint8_t  guid[16];
         uint64_t first_lba;
         uint64_t last_lba;
         uint64_t attributes;
-        char     name[73];  /* UTF-8, worst case 2 bytes per UTF-16 + null */
+        char     name[38];      // In ASCII
+        GuidType type;
         uint32_t entry_index;
     } gpt_partition_t;
 
@@ -41,8 +53,6 @@ namespace GPTMap {
             _table.count = 0;
         }
 
-        static const uint8_t* fat32_guid[16];
-
         // Load table
         int load();
 
@@ -51,6 +61,9 @@ namespace GPTMap {
 
         // Return partition data by index
         gpt_partition_t& get(int n) { return _table.entries[n]; }
+
+    private:
+        bool partition_is_fat32(uint32_t first_lba);
     };
 
 

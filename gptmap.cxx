@@ -5,16 +5,79 @@
 
 using namespace GPTMap;
 
-const uint8_t fat32_guid[16] = {
-    0xa2, 0xa0, 0xd0, 0xeb, 0xe5, 0xb9, 0x33, 0x44,
-    0x87, 0xc0, 0x68, 0xb6, 0xb7, 0x26, 0x99, 0xc7
-};
 
-// EFI System partition type GUID
-const uint8_t efi_system_guid[16] = {
-    0x28, 0x73, 0x2a, 0xc1, 0x1f, 0xf8, 0xd2, 0x11,
-    0xba, 0x4b, 0x0, 0xa0, 0xc9, 0x3e, 0xc9, 0x3b
-};
+static const uint8_t GUID_EFI_SYSTEM[16] =
+    {0xC1,0x2A,0x73,0x28,0xF8,0x1F,0x11,0xD2,
+     0xBA,0x4B,0x00,0xA0,0xC9,0x3E,0xC9,0x3B};
+
+static const uint8_t GUID_MS_BASIC_DATA[16] =
+    {0xEB,0xD0,0xA0,0xA2,0xB9,0xE5,0x44,0x33,
+     0x87,0xC0,0x68,0xB6,0xB7,0x26,0x99,0xC7};
+
+static const uint8_t GUID_LINUX_FS[16] =
+    {0x0F,0xC6,0x3D,0xAF,0x84,0x83,0x47,0x72,
+     0x8E,0x79,0x3D,0x69,0xD8,0x47,0x7D,0xE4};
+
+static const uint8_t GUID_LINUX_SWAP[16] =
+    {0x06,0x57,0xFD,0x6D,0xA4,0xAB,0x43,0xC4,
+     0x84,0xE5,0x09,0x33,0xC8,0x4B,0x4F,0x4F};
+
+static const uint8_t GUID_BIOS_BOOT[16] =
+    {0x21,0x68,0x61,0x48,0x64,0x49,0x6E,0x6F,
+     0x74,0x4E,0x65,0x65,0x64,0x45,0x46,0x49};
+
+
+static void gpt_guid_normalize(uint8_t out[16], const uint8_t in[16])
+{
+    out[0] = in[3];
+    out[1] = in[2];
+    out[2] = in[1];
+    out[3] = in[0];
+
+    out[4] = in[5];
+    out[5] = in[4];
+
+    out[6] = in[7];
+    out[7] = in[6];
+
+    for (int i = 8; i < 16; i++)
+        out[i] = in[i];
+}
+
+
+static GuidType
+identify_partition_type(const uint8_t raw_guid[16])
+{
+    uint8_t guid[16];
+    gpt_guid_normalize(guid, raw_guid);
+
+    if (!::memcmp(guid, GUID_EFI_SYSTEM, 16))
+        return TYPE_EFI_SYSTEM;
+
+    if (!::memcmp(guid, GUID_MS_BASIC_DATA, 16))
+        return TYPE_MS_BASIC_DATA;
+
+    if (!::memcmp(guid, GUID_LINUX_FS, 16))
+        return TYPE_LINUX_FILESYSTEM;
+
+    if (!::memcmp(guid, GUID_LINUX_SWAP, 16))
+        return TYPE_LINUX_SWAP;
+
+    if (!::memcmp(guid, GUID_BIOS_BOOT, 16))
+        return TYPE_BIOS_BOOT;
+
+    return TYPE_UNKNOWN;
+}
+
+
+bool Table::partition_is_fat32(uint32_t first_lba)
+{
+    if (_bdev.read_blocks(first_lba, 1, _sector) != 0)
+        return false;
+
+    return (::memcmp(_sector+82, "FAT32", 5) == 0);
+}
+
 
 static uint32_t crc32(const void *data, size_t len)
 {
@@ -99,7 +162,6 @@ static int utf16le_to_ascii(char *out,
 }
 
 
-
 int Table::load()
 {
     if (_bdev.read_blocks(GPT_HEADER_LBA, 1, _sector) != 0)
@@ -120,7 +182,10 @@ int Table::load()
         return -4;
 
     // Scan and collect partitions
-    const uint64_t lba = hdr.partition_entry_lba;
+    if (hdr.partition_entry_lba >> 32) // 32-bit LBA limit
+        return -5;
+
+    const uint32_t lba = hdr.partition_entry_lba;
     int entry_count = min(hdr.num_partition_entries, GPT_MAX_PARTITIONS);
     int sector = 0;
     _table.count = 0;
@@ -128,7 +193,7 @@ int Table::load()
 
     while (entry_count-- > 0) {
         if (_bdev.read_blocks(lba + sector++, 1, _sector))
-            return -5;
+            return -6;
 
         const gpt_entry_raw_t* raw = (const gpt_entry_raw_t*)_sector;
 
@@ -143,6 +208,7 @@ int Table::load()
                 p->last_lba    = raw->last_lba;
                 p->attributes  = raw->attributes;
                 p->entry_index = i;
+                p->type = identify_partition_type(p->type_guid);
 
                 utf16le_to_ascii(p->name, sizeof p->name, raw->name, GPT_NAME_LEN, '=');
             }
@@ -150,5 +216,13 @@ int Table::load()
             ++i;
         }
     }
+
+    // Autodetect FAT32 - they can hide inside a variety of types..
+    // Do this outside the loop above as it clobbers _sector.
+    for (int i = 0; i < _table.count; i++) {
+        if (partition_is_fat32(_table.entries[i].first_lba))
+            _table.entries[i].type = TYPE_FAT32;
+    }
+
     return 0;
 }

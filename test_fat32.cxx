@@ -792,6 +792,9 @@ int main(void)
     assert(gpt.load() == 0);
     assert(gpt.count() == 1);
 
+    assert(gpt.get(0).type == GPTMap::TYPE_FAT32);
+    assert(::strlen(gpt.get(0).name) == 0);
+
     GPTMap::Mapper mapper(bdev, gpt.get(0));
     CacheBlockDev bcache(mapper, false);
     Fat32::FileSys fs(bcache);
