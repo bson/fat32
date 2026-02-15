@@ -12,6 +12,11 @@
 # done.  Since it's run with -e it will never get there if it fails.
 #
 # Uses mkfs.vfat instead of mformat.
+#
+# Note: while the disk image is FAT32, the partition created is
+# actually of the type EFI System; i.e., where the EFI boot loaders
+# etc live.  So it may not be mountable.
+#
 
 # Create a FAT32 disk image from the contents of a directory.
 #
