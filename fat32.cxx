@@ -150,7 +150,7 @@ int FileSys::fat_set_single(uint32_t cluster,
                             uint32_t fat_index)
 {
     const uint32_t off = cluster * 4;
-    const uint32_t base = _fat_start_lba + fat_index * _sectors_per_fat;
+    const uint32_t base = _fat_start_lba + fat_index * _fat_size_sectors;
 
     const uint32_t lba = base + (off / _bytes_per_sector);
     const uint32_t pos = off % _bytes_per_sector;
@@ -332,7 +332,7 @@ int FileSys::mount()
     _reserved_sectors   = bpb->reserved_sector_count;
     _bytes_per_sector   = bpb->bytes_per_sector;
     _sectors_per_cluster= bpb->sectors_per_cluster;
-    _sectors_per_fat    = bpb->fat_size_32;
+    _fat_size_sectors    = bpb->fat_size_32;
     _fat_count          = bpb->num_fats;
     _root_cluster       = bpb->root_cluster;
     _ext_flags          = bpb->ext_flags;
@@ -340,11 +340,11 @@ int FileSys::mount()
     if (_bytes_per_sector > MAX_SECTOR_SIZE)
         return with_error(Error::UNSUPPORTED_SECTOR_SIZE);
 
-    if (_sectors_per_fat == 0)
+    if (_fat_size_sectors == 0)
         return with_error(Error::BAD_FAT_SIZE);
 
     _fat_start_lba  = _reserved_sectors;
-    _data_start_lba = _reserved_sectors + _fat_count * _sectors_per_fat;
+    _data_start_lba = _reserved_sectors + _fat_count * _fat_size_sectors;
 
     const uint32_t total_sectors =
         bpb->total_sectors_32 ?
@@ -352,7 +352,7 @@ int FileSys::mount()
         bpb->total_sectors_16;
 
     const uint32_t data_sectors = total_sectors
-        - (_reserved_sectors + _fat_count * _sectors_per_fat);
+        - (_reserved_sectors + _fat_count * _fat_size_sectors);
 
     _total_clusters = data_sectors / _sectors_per_cluster;
 
@@ -403,7 +403,6 @@ int FileSys::mount()
 
     if (dir_load_volume_label_from_root())
         return -1;
-
 
     // Strict checks; this is last so the FS is still usable if we
     // fail here.
@@ -1626,10 +1625,10 @@ int FileSys::fat_compare(uint32_t fat_a, uint32_t fat_b)
 
     success();                  // Clear any error
 
-    uint32_t lba_a = _fat_start_lba + fat_a * _sectors_per_fat;
-    uint32_t lba_b = _fat_start_lba + fat_b * _sectors_per_fat;
+    uint32_t lba_a = _fat_start_lba + fat_a * _fat_size_sectors;
+    uint32_t lba_b = _fat_start_lba + fat_b * _fat_size_sectors;
 
-    for (uint32_t s = 0; s < _sectors_per_fat; s++) {
+    for (uint32_t s = 0; s < _fat_size_sectors; s++) {
         uint8_t* sec_a_in;
         if (load_sector(lba_a, &sec_a_in))
             return -1;
@@ -1653,10 +1652,10 @@ int FileSys::fat_compare(uint32_t fat_a, uint32_t fat_b)
 
 int FileSys::fat_copy(uint32_t src, uint32_t dst)
 {
-    uint32_t lba_src = _fat_start_lba + src * _sectors_per_fat;
-    uint32_t lba_dst = _fat_start_lba + dst * _sectors_per_fat;
+    uint32_t lba_src = _fat_start_lba + src * _fat_size_sectors;
+    uint32_t lba_dst = _fat_start_lba + dst * _fat_size_sectors;
 
-    for (uint32_t s = 0; s < _sectors_per_fat; s++) {
+    for (uint32_t s = 0; s < _fat_size_sectors; s++) {
         uint8_t* sector;
         if (load_sector(lba_src, &sector))
             return -1;

@@ -83,7 +83,7 @@ namespace Fat32 {
         uint32_t _reserved_sectors;
 
         uint32_t _fat_start_lba;
-        uint32_t _sectors_per_fat;
+        uint32_t _fat_size_sectors;
         uint32_t _fat_count;
 
         uint32_t _data_start_lba;
