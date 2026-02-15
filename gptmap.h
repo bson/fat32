@@ -62,8 +62,15 @@ namespace GPTMap {
         // Return partition data by index
         gpt_partition_t& get(int n) { return _table.entries[n]; }
 
+        // Return name for partition type
+        static const char* typestr(GuidType type) {
+            return part_type_str[type];
+        }
+
     private:
         bool partition_is_fat32(uint32_t first_lba);
+
+        static const char* part_type_str[NUM_TYPES];
     };
 
 

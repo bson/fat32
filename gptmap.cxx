@@ -26,6 +26,15 @@ static const uint8_t GUID_BIOS_BOOT[16] =
     {0x21,0x68,0x61,0x48,0x64,0x49,0x6E,0x6F,
      0x74,0x4E,0x65,0x65,0x64,0x45,0x46,0x49};
 
+const char* Table::part_type_str[NUM_TYPES] = {
+    [TYPE_UNKNOWN]            = "Unknown",
+    [TYPE_EFI_SYSTEM]         = "EFI System",
+    [TYPE_FAT32]              = "FAT32",
+    [TYPE_MS_BASIC_DATA]      = "Microsoft Basic Data",
+    [TYPE_LINUX_FILESYSTEM]   = "Linux Filesystem",
+    [TYPE_LINUX_SWAP]         = "Linux Swap",
+    [TYPE_BIOS_BOOT]          = "BIOS Boot",
+};
 
 static void gpt_guid_normalize(uint8_t out[16], const uint8_t in[16])
 {

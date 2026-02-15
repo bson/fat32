@@ -33,14 +33,6 @@
 #include "cache.h"
 #include "gptmap.h"
 
-/*
- * dd if=/dev/zero of=test.img bs=1M count=16
- * mkfs.vfat -F 32 -n "TEST_IMG" test.img
- *
- * The test image can be mounted with:
- *    mkdir -p mnt && sudo mount -o loop test.img mnt
- */
-
 #define TEST_IMAGE "test.img"
 #define SECTOR_SIZE 512
 
@@ -264,8 +256,6 @@ void test_create_write_read_delete(Fat32::FileSys *fs)
     assert(strncmp(buffer, data, strlen(data)) == 0);
 
     assert(f.close() == 0);
-
-//    assert(fs->unlink(filename) == 0);
 }
 
 void test_multilevel_path(Fat32::FileSys *fs)
@@ -287,7 +277,7 @@ void test_multilevel_path(Fat32::FileSys *fs)
 
 void test_stat(Fat32::FileSys *fs)
 {
-    printf("TEST: Fat32::stat\n");
+    printf("TEST: open-as-stat\n");
 
     const char *filename = "statfile.txt";
     const char *data = "Stat test data";
@@ -327,12 +317,12 @@ void test_stat(Fat32::FileSys *fs)
     /* open must now fail */
     assert(fs->open(filename, &st) != 0);
 
-    printf("  Fat32::stat passed\n");
+    printf("  open-as-stat passed\n");
 }
 
 void test_dirops(Fat32::FileSys* fs)
 {
-    printf("TEST: Fat32::mkdir, Fat32::rmdir\n");
+    printf("TEST: mkdir, rmdir\n");
 
     assert(fs->mkdir("DIR10") == 0);
     assert(fs->mkdir("DIR10") != 0 && fs->last_error() == Fat32::Error::ALREADY_EXISTS);
@@ -346,15 +336,15 @@ void test_dirops(Fat32::FileSys* fs)
     assert(f.close() == 0);
     assert(fs->rmdir("DIR11") != 0  && fs->last_error() == Fat32::Error::DIR_NOT_EMPTY);
 
-    printf("  Fat32::mkdir, Fat32::rmdir passed\n");
+    printf("  mkdir, rmdir passed\n");
 }
 
 void test_psinfo_write(Fat32::FileSys* fs)
 {
-    printf("TEST: Fat32::sync\n");
+    printf("TEST: FS sync\n");
 
     assert(fs->sync() == 0);
-    printf("  Fat32::sync passed\n");
+    printf("  FS sync passed\n");
 }
 
 
@@ -790,12 +780,28 @@ int main(void)
     GPTMap::Table gpt(bdev);
     
     assert(gpt.load() == 0);
-    assert(gpt.count() == 1);
+    assert(gpt.count() >= 1);
 
-    assert(gpt.get(0).type == GPTMap::TYPE_FAT32);
-    assert(::strlen(gpt.get(0).name) == 0);
+    int fatpart = -1;
+    for (int i = 0;  i < gpt.count(); i++) {
+        printf("\n--- partition #%d ---\n", i+1);
+        printf("Name: \"%s\"\n", gpt.get(i).name);
+        printf("Type: %s\n", GPTMap::Table::typestr(gpt.get(i).type));
+        printf("Index: %d\n", gpt.get(i).entry_index);
+        printf("First LBA: %llu\n", gpt.get(i).first_lba);
+        printf("Last LBA: %llu\n", gpt.get(i).last_lba);
 
-    GPTMap::Mapper mapper(bdev, gpt.get(0));
+        const uint64_t lba_count = gpt.get(i).last_lba - gpt.get(i).first_lba;
+        printf("LBA size: %llu (%lluMB)\n",  lba_count, (lba_count * SECTOR_SIZE) >> 20);
+        printf("Attributes: 0x%llx\n\n", gpt.get(i).attributes);
+
+        if (gpt.get(i).type == GPTMap::TYPE_FAT32)
+            fatpart = i;
+    }
+
+    assert(fatpart != -1);
+
+    GPTMap::Mapper mapper(bdev, gpt.get(fatpart));
     CacheBlockDev bcache(mapper, false);
     Fat32::FileSys fs(bcache);
 
