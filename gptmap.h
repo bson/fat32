@@ -30,7 +30,8 @@ namespace GPTMap {
         uint64_t last_lba;
         uint64_t attributes;
         char     name[38];      // In ASCII
-        GuidType type;
+        GuidType type;          // Type, e.g. FAT32
+        GuidType otype;         // Original type, e.g. EFI System
         uint32_t entry_index;
     } gpt_partition_t;
 

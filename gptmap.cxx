@@ -217,7 +217,8 @@ int Table::load()
                 p->last_lba    = raw->last_lba;
                 p->attributes  = raw->attributes;
                 p->entry_index = i;
-                p->type = identify_partition_type(p->type_guid);
+                p->type        = identify_partition_type(p->type_guid);
+                p->otype       = p->type;
 
                 utf16le_to_ascii(p->name, sizeof p->name, raw->name, GPT_NAME_LEN, '=');
             }

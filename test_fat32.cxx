@@ -786,7 +786,10 @@ int main(void)
     for (int i = 0;  i < gpt.count(); i++) {
         printf("\n--- partition #%d ---\n", i+1);
         printf("Name: \"%s\"\n", gpt.get(i).name);
-        printf("Type: %s\n", GPTMap::Table::typestr(gpt.get(i).type));
+        printf("Type: %s (as %s)\n",
+               GPTMap::Table::typestr(gpt.get(i).type),
+               GPTMap::Table::typestr(gpt.get(i).otype)
+            );
         printf("Index: %d\n", gpt.get(i).entry_index);
         printf("First LBA: %llu\n", gpt.get(i).first_lba);
         printf("Last LBA: %llu\n", gpt.get(i).last_lba);
