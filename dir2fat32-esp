@@ -11,6 +11,7 @@
 # The play-by-play output replaced with a single line showing what was
 # done.  Since it's run with -e it will never get there if it fails.
 #
+# Uses mkfs.vfat instead of mformat.
 
 # Create a FAT32 disk image from the contents of a directory.
 #
@@ -39,15 +40,13 @@
 set -e
 
 usage() {
-  echo "Usage: $(basename $0) [-h -f] OUTPUT SIZE"
+  echo "Usage: $(basename $0) OUTPUT SIZE"
   echo
   echo "Arguments:"
   echo "  OUTPUT      name of the image file"
-  echo "  SIZE        size of the FAT32 partition in MiB (1024 based)"
+  echo "  SIZE        size of the image in MiB (1024 based)"
   echo
-  echo "NOTE: the image size is always 8 MiB larger than the partition size"
-  echo "to account for the partition offset. The partition size itself should"
-  echo "ideally be a multiple of 8 MiB."
+  echo "NOTE: the partition created is 1MiB smaller than the container."
   echo
   echo "dir2fat32-esp"
   echo "Copyright 2016 Othernet Inc, 2021 mintsuki"
@@ -59,7 +58,7 @@ usage() {
 }
 
 mkcontainer() {
-  dd if=/dev/zero bs=1048576 count=0 seek=${SIZE} of="$OUTPUT" 2>/dev/null
+  dd if=/dev/zero bs=1M count=0 seek=${SIZE} of="$OUTPUT" 2>/dev/null
   echo "
 g
 n
@@ -72,12 +71,12 @@ w" | fdisk "$OUTPUT" 2>/dev/null >/dev/null
 }
 
 mkpartition() {
-  dd if=/dev/zero bs=1048576 count=0 seek=$(expr ${SIZE} - 2) of="$PARTITION" 2>/dev/null
-  mformat -i "$PARTITION" -F ::
+  dd if=/dev/zero bs=1M count=0 seek=$(expr ${SIZE} - 2) of="$PARTITION" 2>/dev/null
+  mkfs.vfat -F 32 -n "FAT32VOL" $PARTITION
 }
 
 insertpart() {
-  dd if="$PARTITION" of="$OUTPUT" bs=1048576 seek=1 conv=notrunc 2>/dev/null
+  dd if="$PARTITION" of="$OUTPUT" bs=1M seek=1 conv=notrunc 2>/dev/null
 }
 
 # Parse remaining positional arguments
@@ -93,4 +92,10 @@ fi
 
 PARTITION=${OUTPUT}.partition
 
-echo Successfully created GPT partition table with a ${SIZE}MB FAT32 partition in $OUTPUT
+rm -f $OUTPUT
+mkcontainer
+mkpartition
+insertpart
+rm -f "$PARTITION"
+
+echo Created GPT partition on image $OUTPUT with a ${SIZE}MB FAT32 partition

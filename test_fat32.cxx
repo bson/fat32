@@ -33,7 +33,10 @@
 
 /*
  * dd if=/dev/zero of=test.img bs=1M count=16
- * mkfs.vfat -F 32 -n "TEST IMAGE" test.img
+ * mkfs.vfat -F 32 -n "TEST_IMG" test.img
+ *
+ * The test image can be mounted with:
+ *    mkdir -p mnt && sudo mount -o loop test.img mnt
  */
 
 #define TEST_IMAGE "test.img"
