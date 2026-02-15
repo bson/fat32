@@ -27,7 +27,7 @@ namespace Fat32 {
 
     template <typename T> class ScopedLock {
     public:
-        ScopedLock(const volatile T& l) { }
+        ScopedLock(const T& l) { }
         ~ScopedLock() { }
 
         ScopedLock() = delete;
@@ -40,15 +40,15 @@ namespace Fat32 {
     public:
         Lock() { }
         ~Lock() { }
-        void assert_locked() volatile const { }
-        bool try_acquire() volatile const { return true; }
+        void assert_locked() const { }
+        bool try_acquire() const { return true; }
 
-        void acquire() volatile const { }
-        void release() volatile const { }
+        void acquire() const { }
+        void release() const { }
 
         // These make no sense
-        Lock(const volatile Lock&) = delete;
-        Lock& operator=(const volatile Lock&) = delete;
+        Lock(const Lock&) = delete;
+        Lock& operator=(const Lock&) = delete;
     };
 
     typedef ScopedLock<Lock> Exclusive;
