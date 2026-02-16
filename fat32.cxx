@@ -1283,6 +1283,7 @@ int FileSys::mkdir(const char *path)
     ent[0].last_access_date = ent[0].creation_date;
 #endif
 
+    // When the .. is root, the cluster is 0 for some odd reason
     if (parent_cluster == _root_cluster)
         parent_cluster = 0;
 
