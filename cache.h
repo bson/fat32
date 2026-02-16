@@ -69,11 +69,20 @@ public:
        _nwrite_hits = 0;
     }
 
-    int init() { return _bdev.init(); }
-    int read_blocks(uint32_t lba, uint32_t count, void *buffer);
-    int write_blocks(uint32_t lba, uint32_t count, const void *buffer);
+    int init() {
+        if (_bdev.init())
+            return -1;
+
+        if (_bdev.sector_size() != SECTOR_SIZE)
+            return -1;
+
+        return 0;
+    }
+    int read_blocks(uint32_t lba, uint32_t count, void *buffer, bool bypass);
+    int write_blocks(uint32_t lba, uint32_t count, const void *buffer, bool bypass);
     int flush();
     uint32_t sector_size() const { return SECTOR_SIZE; }
+    uint32_t size() const { return _bdev.size(); }
 
 private:
     void lru_move_to_front(CacheEntry *e);

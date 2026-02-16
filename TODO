@@ -1,13 +1,5 @@
 Use shifts and masks for sector and cluster sizes.
 
-Add an argument to write, read that causes the data portion of the
-I/O to bypass the cache.  Add the same to blockdev.  For the cache,
-a write should write to disk and evict the sector. A read should
-fill it from the cache if present, otherwise return it from the disk
-but not add it to the cache.
-
-Add a function to BlockDev to return the size of the device/partition.
-
 Refactor test_fat32 a bit so it can be built for firmware (with a
 suitable block device, like an SD or CF card and driver) and run on a
 target platform.

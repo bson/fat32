@@ -88,7 +88,7 @@ CacheBlockDev::CacheEntry* CacheBlockDev::cache_alloc_entry()
 }
 
 
-int CacheBlockDev::read_blocks(uint32_t lba, uint32_t count, void *buffer)
+int CacheBlockDev::read_blocks(uint32_t lba, uint32_t count, void *buffer, bool bypass)
 {
     uint8_t *out = (uint8_t*)buffer;
 
@@ -100,16 +100,23 @@ int CacheBlockDev::read_blocks(uint32_t lba, uint32_t count, void *buffer)
         CacheEntry *e = cache_lookup(cur);
 
         if (!e) {
-            e = cache_alloc_entry();
-            if (!e)
-                return -1;
+            if (bypass) {
+                if (_bdev.read_blocks(cur, 1, out, bypass))
+                    return -1;
+                out += SECTOR_SIZE;
+                continue;
+            } else {
+                e = cache_alloc_entry();
+                if (!e)
+                    return -1;
 
-            if (_bdev.read_blocks(cur, 1, e->data) != 0)
-                return -1;
+                if (_bdev.read_blocks(cur, 1, e->data) != 0)
+                    return -1;
 
-            e->lba = cur;
-            e->valid = 1;
-            e->dirty = 0;
+                e->lba = cur;
+                e->valid = 1;
+                e->dirty = 0;
+            }
         } else {
             ++_nread_hits;
         }
@@ -124,7 +131,7 @@ int CacheBlockDev::read_blocks(uint32_t lba, uint32_t count, void *buffer)
 }
 
 
-int CacheBlockDev::write_blocks(uint32_t lba, uint32_t count, const void *buffer)
+int CacheBlockDev::write_blocks(uint32_t lba, uint32_t count, const void *buffer, bool bypass)
 {
     const uint8_t *in = (const uint8_t*)buffer;
 
@@ -144,18 +151,21 @@ int CacheBlockDev::write_blocks(uint32_t lba, uint32_t count, const void *buffer
             e->valid = 1;
             e->dirty = 0;
         } else {
+            e->dirty = false;
             ++_nwrite_hits;
         }
 
-        ::memcpy(e->data, in, SECTOR_SIZE);
+        if (!bypass)
+            ::memcpy(e->data, in, SECTOR_SIZE);
 
-        if (_write_through) {
-            if (_bdev.write_blocks(cur, 1, e->data))
+        if (_write_through || bypass) {
+            if (_bdev.write_blocks(cur, 1, bypass ? in : e->data))
                 return -1;
         } else
             e->dirty = 1;
 
-        lru_move_to_front(e);
+        if (!bypass)
+            lru_move_to_front(e);
 
         in += SECTOR_SIZE;
     }

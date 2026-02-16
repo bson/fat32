@@ -98,14 +98,14 @@ const char* FileSys::strerror(Error err) const
 }
 
 
-int FileSys::load_sector(uint32_t lba, uint8_t** sector)
+int FileSys::load_sector(uint32_t lba, uint8_t** sector, bool bypass)
 {
     if (lba == _sec_lba) {
         *sector = _sector;
         return success();
     }
 
-    if (_bdev.read_blocks(lba, 1, _sector))
+    if (_bdev.read_blocks(lba, 1, _sector, bypass))
         return with_error(Error::BDEV_READ_ERR);
 
     *sector = _sector;
@@ -114,9 +114,9 @@ int FileSys::load_sector(uint32_t lba, uint8_t** sector)
 }
 
 
-int FileSys::store_sector(uint32_t lba)
+int FileSys::store_sector(uint32_t lba, bool bypass)
 {
-    if (_bdev.write_blocks(lba, 1, _sector))
+    if (_bdev.write_blocks(lba, 1, _sector, bypass))
         return with_error(Error::BDEV_WRITE_ERR);
 
     _sec_lba = lba;
@@ -744,7 +744,7 @@ int FileSys::fat_cluster_at(uint32_t start_cluster, uint32_t index, uint32_t* cl
 }
 
 
-int FileSys::File::read(void *buffer, size_t len) 
+int FileSys::File::read(void *buffer, size_t len, bool bypass)
 {
     Exclusive excl_(_lock);
     Exclusive excl2_(_fs->_lock);
@@ -773,7 +773,7 @@ int FileSys::File::read(void *buffer, size_t len)
             + (cluster_offset / _fs->_bytes_per_sector);
 
         uint8_t* sector;
-        if (_fs->load_sector(lba, &sector))
+        if (_fs->load_sector(lba, &sector, bypass))
             return -1;
 
         const uint32_t sector_offset = cluster_offset % _fs->_bytes_per_sector;
@@ -794,7 +794,7 @@ int FileSys::File::read(void *buffer, size_t len)
 }
 
 
-int FileSys::File::write(const void *buffer, size_t len)
+int FileSys::File::write(const void *buffer, size_t len, bool bypass)
 {
     if (len == 0)
         return _fs->success();
@@ -838,7 +838,7 @@ int FileSys::File::write(const void *buffer, size_t len)
         ::memcpy(sector + sector_offset, in, to_copy);
 
         /* DATA FIRST */
-        if (_fs->store_sector(lba))
+        if (_fs->store_sector(lba, bypass))
             return -1;
 
         in += to_copy;

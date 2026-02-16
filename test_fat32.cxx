@@ -27,6 +27,7 @@
 #include <assert.h>
 #include <time.h>
 #include <errno.h>
+#include <sys/stat.h>
 
 #include "blockdev.h"
 #include "fat32.h"
@@ -43,15 +44,21 @@ public:
     int fd;
     int numloads;
     int numstores;
+    struct stat st;
 
     PosixBlockDev()
         : fd(-1), numloads(0), numstores(0)
     { }
 
-    int init() { return 0; }
+    int init() {
+        if (::fstat(fd, &st) == -1)
+            return -1;
+
+        return 0;
+    }
 
 
-    int read_blocks(uint32_t lba, uint32_t count, void *buffer)
+    int read_blocks(uint32_t lba, uint32_t count, void *buffer, bool)
     {
         //printf("Load LBA: %d\n", lba);
         numloads++;
@@ -70,7 +77,7 @@ public:
     }
 
 
-    int write_blocks(uint32_t lba, uint32_t count, const void *buffer)
+    int write_blocks(uint32_t lba, uint32_t count, const void *buffer, bool)
     {
         //printf("Write LBA: %d\n", lba);
         numstores++;
@@ -92,6 +99,8 @@ public:
     int flush() { ::fsync(fd); return 0; }
 
     uint32_t sector_size() const { return SECTOR_SIZE; }
+
+    uint32_t size() const { return st.st_size / SECTOR_SIZE; }
 };
 
 
@@ -744,7 +753,8 @@ void test_readdir(Fat32::FileSys* fs)
 }
 
 
-#define PATTERN_TEST_FILE "fat_test.bin"
+#define PATTERN_TEST_FILE "test_1m1.bin"
+#define PATTERN_TEST_FILE2 "test_1m2.bin"
 #define PATTERN_TOTAL_SIZE (1024 * 1024)      /* 1 MiB */
 #define PATTERN_BLOCK_SIZE 512
 #define PATTERN_IO_SIZE (10 * 1024)           /* 10 KiB */
@@ -785,6 +795,7 @@ static int generate_pattern(uint8_t *buf,
     return 0;
 }
 
+
 void test_large_write_read(Fat32::FileSys* fs)
 {
     printf("TEST: large write-read\n");
@@ -817,6 +828,50 @@ void test_large_write_read(Fat32::FileSys* fs)
             chunk = PATTERN_TOTAL_SIZE - offset;
 
         assert(f.read(buffer, chunk) == chunk);
+
+        generate_pattern(verify, offset, chunk);
+
+        assert(::memcmp(buffer, verify, chunk) == 0);
+    }
+
+    assert(f.close() == 0);
+
+    printf("    1 MiB write/read verification passed\n");
+}
+
+
+void test_large_write_read_bypass(Fat32::FileSys* fs)
+{
+    printf("TEST: large write-read (cache bypass)\n");
+
+    Fat32::FileSys::File f;
+    assert(fs->create(PATTERN_TEST_FILE2, &f) == 0);
+
+    uint8_t buffer[PATTERN_IO_SIZE];
+
+    /* Write phase */
+    for (size_t offset = 0; offset < PATTERN_TOTAL_SIZE; offset += PATTERN_IO_SIZE) {
+        size_t chunk = PATTERN_IO_SIZE;
+        if (offset + chunk > PATTERN_TOTAL_SIZE)
+            chunk = PATTERN_TOTAL_SIZE - offset;
+
+        generate_pattern(buffer, offset, chunk);
+
+        assert(f.write(buffer, chunk, true) == chunk);
+    }
+
+    assert(f.close() == 0);
+
+    assert(fs->open(PATTERN_TEST_FILE2, &f) == 0);
+
+    uint8_t verify[PATTERN_IO_SIZE];
+
+    for (size_t offset = 0; offset < PATTERN_TOTAL_SIZE; offset += PATTERN_IO_SIZE) {
+        size_t chunk = PATTERN_IO_SIZE;
+        if (offset + chunk > PATTERN_TOTAL_SIZE)
+            chunk = PATTERN_TOTAL_SIZE - offset;
+
+        assert(f.read(buffer, chunk, true) == chunk);
 
         generate_pattern(verify, offset, chunk);
 
@@ -890,6 +945,7 @@ int main(void)
     test_truncate_zero(&fs);
     test_readdir(&fs);
     test_large_write_read(&fs);
+    test_large_write_read_bypass(&fs);
     test_psinfo_write(&fs);
 
     printf("All tests completed.\n");

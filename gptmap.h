@@ -99,25 +99,27 @@ namespace GPTMap {
             return 0;
         }
 
-        int read_blocks(uint32_t lba, uint32_t count, void *buffer) {
+        int read_blocks(uint32_t lba, uint32_t count, void *buffer, bool bypass) {
             lba += _first_lba;
             if (lba < _first_lba || lba + count > _last_lba)  // < means it wrapped
                 return -1;
 
-            return _bdev.read_blocks(lba, count, buffer);
+            return _bdev.read_blocks(lba, count, buffer, bypass);
         }
 
-        int write_blocks(uint32_t lba, uint32_t count, const void *buffer) {
+        int write_blocks(uint32_t lba, uint32_t count, const void *buffer, bool bypass) {
             lba += _first_lba;
             if (lba < _first_lba || lba + count > _last_lba)
                 return -1;
 
-            return _bdev.write_blocks(lba, count, buffer);
+            return _bdev.write_blocks(lba, count, buffer, bypass);
         }
 
         int flush() { return _bdev.flush(); }
 
         uint32_t sector_size() const { return SECTOR_SIZE; }
+
+        uint32_t size() const { return _last_lba - _first_lba; }
     };
 
 

@@ -254,8 +254,8 @@ namespace Fat32 {
             }
 
             // These return bytes read/written, or -1 on error
-            int read(void *buffer, size_t len);
-            int write(const void *buffer, size_t len);
+            int read(void *buffer, size_t len, bool bypass = false);
+            int write(const void *buffer, size_t len, bool bypass = false);
 
             int lseek(int32_t offset, SeekOp whence);
             int truncate(uint32_t new_size);
@@ -290,8 +290,11 @@ namespace Fat32 {
         friend class Fat32;
         friend class DIR;
 
-        int load_sector(uint32_t lba, uint8_t** sector); // Load sector, if needed
-        int store_sector(uint32_t lba); // Write sector buffer
+        // Load sector, if needed
+        int load_sector(uint32_t lba, uint8_t** sector, bool bypass = false);
+
+        // Write sector buffer
+        int store_sector(uint32_t lba, bool bypass = false);
 
     private:
         uint32_t cluster_size();
