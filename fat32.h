@@ -164,9 +164,10 @@ namespace Fat32 {
         const char* strerror(Error err) const;
 
         // readdir
+        class DIR;
+        int opendir(const char *path, DIR *dir);
 
         class DIR {
-        protected:
             friend class FileSys;
 
             FileSys *_fs;
@@ -191,19 +192,19 @@ namespace Fat32 {
             void closedir();
         };
 
-        int opendir(const char *path, DIR *dir);
-        void closedir();
 
-        // Open files
-
+        // Open file
         class File {
+        protected:
+            friend class FileSys;
+
             // Note: lock order is always File, then FileSys.  FS will
             // never reach up and try to lock a file, so deadlocks
             // can't happen.
             mutable Lock _lock;
-        public:
             FileSys *_fs;
 
+        public:
             DirentAttr _attr;
 
 #ifdef FAT32_DATE_AND_TIME
@@ -214,15 +215,15 @@ namespace Fat32 {
             uint16_t _write_time;
             uint16_t _write_date;
 #endif
-
-            uint32_t _first_cluster;
-            uint32_t _current_cluster;
-
             uint32_t _file_size;
             uint32_t _file_pos;
 
+            // These have public visibility purely for testing purposes
+            uint32_t _first_cluster;
+            uint32_t _current_cluster;
             uint32_t _dir_lba;
             uint32_t _dir_offset;
+
 
             // Test if anything more can be read.  Available can be
             // negative after a seek past EOF.
