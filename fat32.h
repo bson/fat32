@@ -220,7 +220,6 @@ namespace Fat32 {
 
             // These have public visibility purely for testing purposes
             uint32_t _first_cluster;
-            uint32_t _current_cluster;
             uint32_t _dir_lba;
             uint32_t _dir_offset;
 
@@ -282,7 +281,7 @@ namespace Fat32 {
             int ensure_cluster_index(uint32_t needed_index, uint32_t* out_cluster);
 
             // Update directory entry size and timestamp fields
-            int update_dirent_size_time();
+            int update_dirent();
         };
 
 

@@ -550,8 +550,6 @@ int FileSys::dir_find(uint32_t cluster,
                         file->_write_time = ent[i].write_time;
                         file->_write_date = ent[i].write_date;
 #endif
-                        file->_current_cluster = file->_first_cluster;
-
                         file->_file_size  = ent[i].file_size;
                         file->_file_pos   = 0;
                         file->_dir_lba    = lba + s;
@@ -718,7 +716,7 @@ int FileSys::File::ensure_cluster_index(uint32_t needed_index, uint32_t *out_clu
 }
 
 
-int FileSys::File::update_dirent_size_time() 
+int FileSys::File::update_dirent() 
 {
     uint8_t* sector;
     if (_fs->load_sector(_dir_lba, &sector))
@@ -873,7 +871,7 @@ int FileSys::File::write(const void *buffer, size_t len)
 
 #if 0 // Update on close or sync
     /* After data + FAT updates, update size */
-    if (update_dirent_size())
+    if (update_dirent())
         return -1;
 #endif
     (void)_fs->success();
@@ -923,7 +921,7 @@ int FileSys::File::truncate(uint32_t new_size)
         fat32_now(&_write_date, &_write_time);
         _last_access_date = _write_date;
 #endif
-        return update_dirent_size_time();
+        return update_dirent();
     }
 
     /* ---------------- GROW ---------------- */
@@ -969,7 +967,7 @@ int FileSys::File::truncate(uint32_t new_size)
         fat32_now(&_write_date, &_write_time);
         _last_access_date = _write_date;
 #endif
-    return update_dirent_size_time();
+    return update_dirent();
 }
 
 
@@ -1032,7 +1030,7 @@ int FileSys::File::sync()
     Exclusive excl_(_lock);
     Exclusive excl2_(_fs->_lock);
 
-    return update_dirent_size_time();
+    return update_dirent();
 }
 
 
