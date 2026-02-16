@@ -401,6 +401,10 @@ namespace Fat32 {
             uint16_t write_date;
             uint16_t first_cluster_lo;
             uint32_t file_size;
+
+            uint32_t first_cluster() const {
+                return (uint32_t(first_cluster_hi) << 16) | first_cluster_lo;
+            }
         } dirent_t;
 
 #pragma pack(pop)

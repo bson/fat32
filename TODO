@@ -2,14 +2,6 @@ Refactor test_fat32 a bit so it can be built for firmware (with a
 suitable block device, like an SD or CF card and driver) and run on a
 target platform.
 
-Add locking, just a simple variety that only allows one API function
-to be in flight at any one time.  Create a skeleton that does nothing
-which can be used for non-MT platforms that don't need it, and as a
-template for those that do.
-
-Implement pthread-based locking for dev purposes.  Extend test_fat32
-to aggressively test it.
-
 Investigate cluster loading; when loading a sector ask the cache to
 fill the entire cluster.  Add a fill() method to BlockDev for this.
 
@@ -22,9 +14,5 @@ isn't expected to touch this data again anytime soon, if ever.
 The data structures used all have a little-endian dependency. Is this
 even worth the bother these days?
 
-When a file is deleted or renamed, also remove its LFN entry.
-
-Consider adding 7-bit ASCII compatible LFNs and simply use '_' or '='
-for anything unprintable, or something.
-
-Create a function to return the low-high cluster field in a dirent.
+Consider adding 8-bit ASCII compatible LFNs and simply use '=' for
+anything unprintable.

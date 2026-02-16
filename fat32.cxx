@@ -537,9 +537,7 @@ int FileSys::dir_find(uint32_t cluster,
                 if (!(ent[i].attr & DirentAttr::LFN)) {
                     if (!::memcmp(sname, ent[i].name, sizeof sname)) {
 
-                        file->_first_cluster =
-                            ((uint32_t)ent[i].first_cluster_hi << 16)
-                            | ent[i].first_cluster_lo;
+                        file->_first_cluster = ent[i].first_cluster();
 
 #ifdef FAT32_DATE_AND_TIME
                         file->_creation_time_tenth = ent[i].creation_time_tenth;
@@ -1540,9 +1538,7 @@ int FileSys::fsck_scan_directory(fsck_ctx_t *ctx,
                     continue;
 
                 /* Extract cluster */
-                const uint32_t start_cluster = (entry->first_cluster_hi << 16) |
-                    entry->first_cluster_lo;
-
+                const uint32_t start_cluster = entry->first_cluster();
                 if (start_cluster >= _total_clusters) {
                     ++report->invalid_entries;
 #ifdef FAT32_FSCK_REPAIR
@@ -1781,7 +1777,7 @@ int FileSys::DIR::readdir(entry_t *out)
                 out->attr = attr;
 
                 out->size = entry->file_size;
-                out->first_cluster = (entry->first_cluster_hi << 16) | entry->first_cluster_lo;
+                out->first_cluster = entry->first_cluster();
 
                 return 1; /* entry returned */
             }
