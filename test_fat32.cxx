@@ -744,6 +744,91 @@ void test_readdir(Fat32::FileSys* fs)
 }
 
 
+#define PATTERN_TEST_FILE "fat_test.bin"
+#define PATTERN_TOTAL_SIZE (1024 * 1024)      /* 1 MiB */
+#define PATTERN_BLOCK_SIZE 512
+#define PATTERN_IO_SIZE (10 * 1024)           /* 10 KiB */
+
+static void fill_block(uint8_t *buf, uint32_t block_number)
+{
+    for (uint32_t i = 0; i < PATTERN_BLOCK_SIZE; i++)
+        buf[i] = (uint8_t)((block_number ^ i) & 0xFF);
+}
+
+static int generate_pattern(uint8_t *buf,
+                            size_t offset,
+                            size_t len)
+{
+    size_t remaining = len;
+    size_t pos = offset;
+
+    while (remaining > 0) {
+
+        uint32_t block = pos / PATTERN_BLOCK_SIZE;
+        uint32_t block_offset = pos % PATTERN_BLOCK_SIZE;
+
+        uint8_t temp[PATTERN_BLOCK_SIZE];
+        fill_block(temp, block);
+
+        size_t copy = PATTERN_BLOCK_SIZE - block_offset;
+        if (copy > remaining)
+            copy = remaining;
+
+        memcpy(buf + (len - remaining),
+               temp + block_offset,
+               copy);
+
+        remaining -= copy;
+        pos += copy;
+    }
+
+    return 0;
+}
+
+void test_large_write_read(Fat32::FileSys* fs)
+{
+    printf("TEST: large write-read\n");
+
+    Fat32::FileSys::File f;
+    assert(fs->create(PATTERN_TEST_FILE, &f) == 0);
+
+    uint8_t buffer[PATTERN_IO_SIZE];
+
+    /* Write phase */
+    for (size_t offset = 0; offset < PATTERN_TOTAL_SIZE; offset += PATTERN_IO_SIZE) {
+        size_t chunk = PATTERN_IO_SIZE;
+        if (offset + chunk > PATTERN_TOTAL_SIZE)
+            chunk = PATTERN_TOTAL_SIZE - offset;
+
+        generate_pattern(buffer, offset, chunk);
+
+        assert(f.write(buffer, chunk) == chunk);
+    }
+
+    assert(f.close() == 0);
+
+    assert(fs->open(PATTERN_TEST_FILE, &f) == 0);
+
+    uint8_t verify[PATTERN_IO_SIZE];
+
+    for (size_t offset = 0; offset < PATTERN_TOTAL_SIZE; offset += PATTERN_IO_SIZE) {
+        size_t chunk = PATTERN_IO_SIZE;
+        if (offset + chunk > PATTERN_TOTAL_SIZE)
+            chunk = PATTERN_TOTAL_SIZE - offset;
+
+        assert(f.read(buffer, chunk) == chunk);
+
+        generate_pattern(verify, offset, chunk);
+
+        assert(::memcmp(buffer, verify, chunk) == 0);
+    }
+
+    assert(f.close() == 0);
+
+    printf("    1 MiB write/read verification passed\n");
+}
+
+
 /* ================= MAIN ================= */
 
 int main(void)
@@ -804,6 +889,7 @@ int main(void)
     test_truncate_grow(&fs);
     test_truncate_zero(&fs);
     test_readdir(&fs);
+    test_large_write_read(&fs);
     test_psinfo_write(&fs);
 
     printf("All tests completed.\n");
