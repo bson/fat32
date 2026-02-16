@@ -293,7 +293,7 @@ void test_stat(Fat32::FileSys *fs)
     Fat32::FileSys::File st;
     assert(fs->open(filename, &st) == 0);
     assert(st._file_size == 0);
-    assert(st._first_cluster >= 2);
+    assert(st._first_cluster == 0);
     assert((st.attributes() & Fat32::DirentAttr::DIRECTORY) == 0);
 
     /* Write data */

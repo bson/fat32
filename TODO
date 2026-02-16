@@ -1,3 +1,5 @@
+Use shifts and masks for sector and cluster sizes.
+
 Refactor test_fat32 a bit so it can be built for firmware (with a
 suitable block device, like an SD or CF card and driver) and run on a
 target platform.

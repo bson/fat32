@@ -259,7 +259,7 @@ namespace Fat32 {
             int lseek(int32_t offset, SeekOp whence);
             int truncate(uint32_t new_size);
 
-            int close() { return sync(); }
+            int close();
             int sync();
 
             Error last_error() const {

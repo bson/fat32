@@ -231,23 +231,25 @@ int FileSys::fat_free_chain(uint32_t start)
 {
     uint32_t cluster = start;
 
-    while (cluster < EOC) {
+    while (cluster >= 2 && cluster < EOC) {
         uint32_t next;
         if (fat_get(cluster, &next))
             return -1;
+
         if (fat_set(cluster, 0))
             return -1;
+
+        if (_fsinfo_valid) {
+            if (_free_cluster_count != 0xffffffff)
+                ++_free_cluster_count;
+
+            if (cluster < _next_free_cluster)
+                _next_free_cluster = cluster;
+
+            _fsinfo_dirty = true;
+        }
+
         cluster = next;
-    }
-
-    if (_fsinfo_valid) {
-        if (_free_cluster_count != 0xFFFFFFFF)
-            ++_free_cluster_count;
-
-        if (cluster < _next_free_cluster)
-            _next_free_cluster = cluster;
-
-        _fsinfo_dirty = true;
     }
 
     return success();
@@ -685,37 +687,6 @@ int FileSys::cluster_for_offset(uint32_t first_cluster,
 }
 
 
-int FileSys::File::ensure_cluster_index(uint32_t needed_index, uint32_t *out_cluster)
-{
-    uint32_t cluster = _first_cluster;
-    uint32_t index = 0;
-
-    while (index < needed_index) {
-        uint32_t next;
-        if (_fs->fat_get(cluster, &next))
-            return -1;
-
-        if (next >= EOC) {
-            uint32_t new_cluster;
-            if (_fs->fat_allocate(&new_cluster))
-                return -1;
-
-            if (_fs->fat_set(cluster, new_cluster))
-                return -1;
-
-            cluster = new_cluster;
-        } else {
-            cluster = next;
-        }
-
-        index++;
-    }
-
-    *out_cluster = cluster;
-    return _fs->success();
-}
-
-
 int FileSys::File::update_dirent() 
 {
     uint8_t* sector;
@@ -724,7 +695,9 @@ int FileSys::File::update_dirent()
 
     dirent_t *ent = (dirent_t*)&sector[_dir_offset];
 
-    ent->file_size = _file_size;
+    ent->file_size           = _file_size;
+    ent->first_cluster_hi    = _first_cluster >> 16;
+    ent->first_cluster_lo    = _first_cluster & 0xffff;
     
 #ifdef FAT32_DATE_AND_TIME
     ent->creation_time_tenth = _creation_time_tenth;
@@ -829,6 +802,14 @@ int FileSys::File::write(const void *buffer, size_t len)
     Exclusive excl_(_lock);
     Exclusive excl2_(_fs->_lock);
 
+    if (_first_cluster == 0) {
+        if (_fs->fat_allocate(&_first_cluster))
+            return -1;
+
+        if (update_dirent())
+            return -1;
+    }
+
     const uint8_t *in = (const uint8_t*)buffer;
 
     uint32_t remaining = len;
@@ -877,6 +858,46 @@ int FileSys::File::write(const void *buffer, size_t len)
     (void)_fs->success();
     return total_written;
 }
+
+
+int FileSys::File::ensure_cluster_index(uint32_t needed_index, uint32_t *out_cluster)
+{
+    if (_first_cluster == 0) {
+        if (_fs->fat_allocate(&_first_cluster))
+            return -1;
+
+        if (update_dirent())
+            return -1;
+    }
+
+    uint32_t cluster = _first_cluster;
+    uint32_t index = 0;
+
+    while (index < needed_index) {
+        uint32_t next;
+        if (_fs->fat_get(cluster, &next))
+            return -1;
+
+        if (next >= EOC) {
+            uint32_t new_cluster;
+            if (_fs->fat_allocate(&new_cluster))
+                return -1;
+
+            if (_fs->fat_set(cluster, new_cluster))
+                return -1;
+
+            cluster = new_cluster;
+        } else {
+            cluster = next;
+        }
+
+        index++;
+    }
+
+    *out_cluster = cluster;
+    return _fs->success();
+}
+
 
 int FileSys::File::truncate(uint32_t new_size)
 {
@@ -929,6 +950,11 @@ int FileSys::File::truncate(uint32_t new_size)
     const uint32_t needed_clusters = (new_size + cl_size - 1) / cl_size;
 
     uint32_t current_clusters = 0;
+
+    if (_first_cluster == 0) {
+        if (_fs->fat_allocate(&_first_cluster))
+            return -1;
+    }
 
     if (_first_cluster >= 2) {
         uint32_t c = _first_cluster;
@@ -1034,6 +1060,20 @@ int FileSys::File::sync()
 }
 
 
+int FileSys::File::close()
+{
+    Exclusive excl_(_lock);
+    Exclusive excl2_(_fs->_lock);
+
+    if (_file_size == 0 && _first_cluster != 0 && !(_attr & DirentAttr::DIRECTORY)) {
+        _fs->fat_free_chain(_first_cluster);
+        _first_cluster = 0;
+    }
+
+    return sync();
+}
+
+
 int FileSys::create(const char *path, FileSys::File *file)
 {
     Exclusive excl_(_lock);
@@ -1056,10 +1096,6 @@ int FileSys::create(const char *path, FileSys::File *file)
     if (dir_find_free_slot(dir_cluster, &lba, &off))
         return -1;
 
-    uint32_t cluster;
-    if (fat_allocate(&cluster))
-        return -1;
-
     uint8_t* sector;
     if (load_sector(lba, &sector))
         return -1;
@@ -1072,8 +1108,8 @@ int FileSys::create(const char *path, FileSys::File *file)
         return -1;
 
     ent->attr = DirentAttr::NONE;
-    ent->first_cluster_lo = cluster & 0xffff;
-    ent->first_cluster_hi = cluster >> 16;
+    ent->first_cluster_lo = 0;
+    ent->first_cluster_hi = 0;
     ent->file_size = 0;
 #ifdef FAT32_DATE_AND_TIME
     (void)fat32_now(&ent->creation_date, &ent->creation_time);
@@ -1178,8 +1214,7 @@ int FileSys::dir_is_empty(uint32_t cluster)
 
                 /* Skip "." and ".." */
                 if ((ent[i].attr & DirentAttr::DIRECTORY) &&
-                    (!::memcmp(ent[i].name, dot, 11)
-                     || !::memcmp(ent[i].name, dotdot, 11)))
+                    (!::memcmp(ent[i].name, dot, 11)|| !::memcmp(ent[i].name, dotdot, 11)))
                     continue;
 
                 return success(); /* 0 - not empty */
@@ -1213,9 +1248,9 @@ int FileSys::mkdir(const char *path)
     if (dir_find_parent(_tmp, true, &parent_cluster))
         return -1;
 
-    uint32_t slot_lba;
-    uint32_t slot_off;
-    if (dir_find_free_slot(parent_cluster, &slot_lba, &slot_off))
+    uint32_t parent_lba;
+    uint32_t parent_off;
+    if (dir_find_free_slot(parent_cluster, &parent_lba, &parent_off))
         return -1;
 
     uint32_t new_cluster;
@@ -1223,14 +1258,14 @@ int FileSys::mkdir(const char *path)
         return -1;
 
     /* Initialize new directory cluster */
-    uint32_t lba = cluster_to_lba(new_cluster);
+    const uint32_t new_dir_lba = cluster_to_lba(new_cluster);
 
-    ::memset(_sector, 0, _bytes_per_sector);
 
     dirent_t *ent = (dirent_t*)_sector;
 
+    ::memset(_sector, 0, _bytes_per_sector);
+
     /* "." entry */
-    ::memset(&ent[0], 0, sizeof(*ent));
     ::memcpy(ent[0].name, dot, 11);
     ent[0].attr = DirentAttr::DIRECTORY;
     ent[0].first_cluster_lo = new_cluster & 0xffff;
@@ -1251,15 +1286,15 @@ int FileSys::mkdir(const char *path)
     ent[1].first_cluster_lo = parent_cluster & 0xffff;
     ent[1].first_cluster_hi = parent_cluster >> 16;
 
-    if (store_sector(lba))
+    if (store_sector(new_dir_lba))
         return -1;
 
     /* Now write parent directory entry */
     uint8_t* sector;
-    if (load_sector(slot_lba, &sector))
+    if (load_sector(parent_lba, &sector))
         return -1;
 
-    dirent_t *slot = (dirent_t*)&sector[slot_off];
+    dirent_t *slot = (dirent_t*)&sector[parent_off];
 
     ::memset(slot, 0, sizeof(*slot));
 
@@ -1280,7 +1315,7 @@ int FileSys::mkdir(const char *path)
     slot->last_access_date = ent[0].creation_date;
 #endif
 
-    if (store_sector(slot_lba))
+    if (store_sector(parent_lba))
         return -1;
 
     return success();
@@ -1763,11 +1798,11 @@ int FileSys::DIR::readdir(entry_t *out)
                 /* Skip LFN entries */
                 if (attr == DirentAttr::LFN)
                     continue;
-
+#if 0
                 /* Skip "." and ".." */
                 if (!::memcmp(entry->name, dot, 11) || !::memcmp(entry->name, dotdot, 11))
                     continue;
-
+#endif
                 ::memset(out, 0, sizeof(*out));
 
                 _fs->build_83_name(entry->name, out->name);
