@@ -1,6 +1,12 @@
-fsck should fix PSINFO
-
 Use shifts and masks for sector and cluster sizes.
+
+Add an argument to write, read that causes the data portion of the
+I/O to bypass the cache.  Add the same to blockdev.  For the cache,
+a write should write to disk and evict the sector. A read should
+fill it from the cache if present, otherwise return it from the disk
+but not add it to the cache.
+
+Add a function to BlockDev to return the size of the device/partition.
 
 Refactor test_fat32 a bit so it can be built for firmware (with a
 suitable block device, like an SD or CF card and driver) and run on a
@@ -9,14 +15,12 @@ target platform.
 Investigate cluster loading; when loading a sector ask the cache to
 fill the entire cluster.  Add a fill() method to BlockDev for this.
 
-Add a no-cache hint to read/write, or an alternate version.  For
-example, when flushing large amounts of data that has been collected
-and then never using it again this would otherwise cause the entire
-sector cache to be evicted.  The flag would signify that the caller
-isn't expected to touch this data again anytime soon, if ever.
-
 The data structures used all have a little-endian dependency. Is this
-even worth the bother these days?
+even worth the bother these days?  Maybe look into it if it becomes an
+issue, as at that point there will be a BE system to test it on.
 
 Consider adding 8-bit ASCII compatible LFNs and simply use '=' for
-anything unprintable.
+anything unprintable.  This could have a simply interface that
+explicitly adds an LFN for an SFN, removes an LFN for an SFN, renames
+an SFN's LFN, or looks up the SFN for an LFN.  This way systems can
+omit the LFN support pretty easily as they're entirely separate.
