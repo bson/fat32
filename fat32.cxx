@@ -519,7 +519,7 @@ int FileSys::dir_find(uint32_t cluster,
     if (make_sfn(name, sname))
         return -1;
 
-    while (cluster < EOC) {
+    while (cluster >= 2 && cluster < EOC) {
         const uint32_t lba = cluster_to_lba(cluster);
 
         for (uint32_t s = 0; s < _sectors_per_cluster; s++) {
@@ -557,7 +557,7 @@ int FileSys::dir_find(uint32_t cluster,
                         file->_dir_lba    = lba + s;
                         file->_dir_offset = i * sizeof(*ent);
                         file->_attr       = ent[i].attr;
-                        file->_fs = this;
+                        file->_fs         = this;
 
                         return success();
                     }
@@ -799,6 +799,9 @@ int FileSys::File::read(void *buffer, size_t len)
 
 int FileSys::File::write(const void *buffer, size_t len)
 {
+    if (len == 0)
+        return _fs->success();
+
     Exclusive excl_(_lock);
     Exclusive excl2_(_fs->_lock);
 
@@ -1280,8 +1283,11 @@ int FileSys::mkdir(const char *path)
     ent[0].last_access_date = ent[0].creation_date;
 #endif
 
+    if (parent_cluster == _root_cluster)
+        parent_cluster = 0;
+
     /* ".." entry */
-    ent[1] = ent[0];
+    ::memcpy(ent + 1, ent, sizeof *ent);
     ::memcpy(ent[1].name, dotdot, 11);
     ent[1].first_cluster_lo = parent_cluster & 0xffff;
     ent[1].first_cluster_hi = parent_cluster >> 16;
@@ -1798,11 +1804,11 @@ int FileSys::DIR::readdir(entry_t *out)
                 /* Skip LFN entries */
                 if (attr == DirentAttr::LFN)
                     continue;
-#if 0
+
                 /* Skip "." and ".." */
                 if (!::memcmp(entry->name, dot, 11) || !::memcmp(entry->name, dotdot, 11))
                     continue;
-#endif
+
                 ::memset(out, 0, sizeof(*out));
 
                 _fs->build_83_name(entry->name, out->name);

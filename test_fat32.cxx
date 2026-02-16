@@ -110,32 +110,15 @@ int fat_time_from_posix(time_t t,
 
     int year = tm.tm_year + 1900;
 
-    if (year < 1980 || year > 2107)
-        return -1;   /* strict: no clamping */
+    if (year < 1980)
+        year = 1980;
+    else if (year > 2107)
+        year = 2107;
 
-    if (tm.tm_mon < 0 || tm.tm_mon > 11)
-        return -1;
-    if (tm.tm_mday < 1 || tm.tm_mday > 31)
-        return -1;
-    if (tm.tm_hour < 0 || tm.tm_hour > 23)
-        return -1;
-    if (tm.tm_min < 0 || tm.tm_min > 59)
-        return -1;
-    if (tm.tm_sec < 0 || tm.tm_sec > 60)  /* allow leap second */
-        return -1;
+    *fat_date = ((year - 1980) << 9) | ((tm.tm_mon + 1) << 5) | tm.tm_mday;
 
-    uint16_t date =
-        ((year - 1980) << 9) |
-        ((tm.tm_mon + 1) << 5) |
-        (tm.tm_mday);
-
-    uint16_t time_field =
-        (tm.tm_hour << 11) |
-        (tm.tm_min  << 5)  |
-        ((tm.tm_sec / 2) & 0x1F);  /* 2-second resolution */
-
-    *fat_date = date;
-    *fat_time = time_field;
+    /* 2-second resolution */
+    *fat_time = (tm.tm_hour << 11) | (tm.tm_min  << 5)  | ((tm.tm_sec / 2) & 0x1f);
 
     return 0;
 }
@@ -207,7 +190,8 @@ int fat_time_to_posix(uint16_t fat_date,
 
 void fat32_now(uint16_t* fat_date, uint16_t* fat_time)
 {
-    fat_time_from_posix(time(NULL), fat_date, fat_time);
+    // Yesterday
+    fat_time_from_posix(time(NULL)-24*60*60, fat_date, fat_time);
 }
 
 
@@ -468,14 +452,12 @@ void test_truncate_zero(Fat32::FileSys* fs)
 
     assert(fs->create(name, &f) == 0);
     assert(f.write("long long data", 14) == 14);
-
     assert(f.truncate(0) == 0);
+    assert(f.close() == 0);
 
     Fat32::FileSys::File st;
     assert(fs->open(name, &st) == 0);
     assert(st._file_size == 0);
-
-    assert(f.close() == 0);
 }
 
 
@@ -849,6 +831,13 @@ int main(void)
     fs.sync();
 
     close(bdev.fd);
+
+    printf("\nRunning fsck.vfat, corrections disabled...\n\n");
+    system("sudo kpartx -v -a " TEST_IMAGE
+           " && (sudo fsck.vfat -nv -F 0 /dev/mapper/loop0p1"
+               " ; sudo kpartx -v -d " TEST_IMAGE ")");
+
+    printf("\nDone!\n");
 
     return 0;
 }
