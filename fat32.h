@@ -51,23 +51,24 @@ namespace Fat32 {
     };
 
     enum Error : uint8_t {
-        SUCCESS                   = 0,
-        BDEV_READ_ERR             = 1, // Block device read error
-        BDEV_WRITE_ERR            = 2, // Block device write error
-        FAT_FULL                  = 3, // FAT full, unable to allocate cluster
-        ALREADY_EXISTS            = 4, // Already exists
-        UNSUPPORTED_SECTOR_SIZE   = 5, // Unable to mount due to unsupported sector size
-        MALFORMED_FILENAME        = 6, // Malformed 8.3 SFN
-        FILE_NOT_FOUND            = 7, // File or path component not found
-        DIRECTORY_FULL            = 8, // No free entry in directory
-        NEGATIVE_SEEK             = 9, // Seek to negative position
-        DIR_NOT_EMPTY             =10, // Directory not empty
-        BDEV_FLUSH_ERR            =11, // Block device flush error
-        BDEV_INIT_ERR             =12, // Block device init failed (e.g. bad partition)
-        FSCK_ALLOC_ERR            =13, // fsck calloc() failed
-        NOT_DIRECTORY             =14, // opendir or other dir op on a non-directory
-        FS_NEEDS_REPAIR           =15, // Consistency check failed
-        BAD_FAT_SIZE              =16, // FAT size is 0
+        SUCCESS = 0,
+        BDEV_READ_ERR,             // Block device read error
+        BDEV_WRITE_ERR,            // Block device write error
+        FAT_FULL,                  // FAT full, unable to allocate cluster
+        ALREADY_EXISTS,            // Already exists
+        UNSUPPORTED_SECTOR_SIZE,   // Unable to mount due to unsupported sector size
+        MALFORMED_FILENAME,        // Malformed 8.3 SFN
+        FILE_NOT_FOUND,            // File or path component not found
+        DIRECTORY_FULL,            // No free entry in directory
+        NEGATIVE_SEEK,             // Seek to negative position
+        DIR_NOT_EMPTY,             // Directory not empty
+        BDEV_FLUSH_ERR,            // Block device flush error
+        BDEV_INIT_ERR,             // Block device init failed (e.g. bad partition)
+        FSCK_ALLOC_ERR,            // fsck calloc() failed
+        NOT_DIRECTORY,             // opendir or other dir op on a non-directory
+        FS_NEEDS_REPAIR,           // Consistency check failed
+        BAD_FAT_SIZE,              // FAT size is 0
+        FS_EXCEEDS_BDEV,           // Clusters past end of underlying storage
         NUM_ERRORS
     };
 

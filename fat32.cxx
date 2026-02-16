@@ -80,6 +80,7 @@ static const char* error_strings[] = {
     [NOT_DIRECTORY]           = "Not a directory",
     [FS_NEEDS_REPAIR]         = "File system needs repair",
     [BAD_FAT_SIZE]            = "FAT size is 0",
+    [FS_EXCEEDS_BDEV]         = "FS geometry larger than block device",
 };
 
 static_assert((sizeof error_strings / sizeof error_strings[0]) == NUM_ERRORS,
@@ -332,13 +333,13 @@ int FileSys::mount()
     if (load_sector(0, (uint8_t**)&bpb))
         return -1;
 
-    _reserved_sectors   = bpb->reserved_sector_count;
-    _bytes_per_sector   = bpb->bytes_per_sector;
-    _sectors_per_cluster= bpb->sectors_per_cluster;
+    _reserved_sectors    = bpb->reserved_sector_count;
+    _bytes_per_sector    = bpb->bytes_per_sector;
+    _sectors_per_cluster = bpb->sectors_per_cluster;
     _fat_size_sectors    = bpb->fat_size_32;
-    _fat_count          = bpb->num_fats;
-    _root_cluster       = bpb->root_cluster;
-    _ext_flags          = bpb->ext_flags;
+    _fat_count           = bpb->num_fats;
+    _root_cluster        = bpb->root_cluster;
+    _ext_flags           = bpb->ext_flags;
 
     if (_bytes_per_sector > MAX_SECTOR_SIZE)
         return with_error(Error::UNSUPPORTED_SECTOR_SIZE);
@@ -358,6 +359,9 @@ int FileSys::mount()
         - (_reserved_sectors + _fat_count * _fat_size_sectors);
 
     _total_clusters = data_sectors / _sectors_per_cluster;
+
+    if (cluster_to_lba(_total_clusters) > _bdev.size())
+        return with_error(Error::FS_EXCEEDS_BDEV);
 
     // Load PSINFO
     _fsinfo_lba = _fat_start_lba - 1; // From BPB
