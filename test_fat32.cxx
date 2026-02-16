@@ -804,7 +804,6 @@ int main(void)
     test_truncate_grow(&fs);
     test_truncate_zero(&fs);
     test_readdir(&fs);
-
     test_psinfo_write(&fs);
 
     printf("All tests completed.\n");

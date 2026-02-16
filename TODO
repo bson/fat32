@@ -1,3 +1,5 @@
+fsck should fix PSINFO
+
 Use shifts and masks for sector and cluster sizes.
 
 Refactor test_fat32 a bit so it can be built for firmware (with a

@@ -193,7 +193,7 @@ int FileSys::fat_allocate(uint32_t *out)
 {
     uint32_t start = _fsinfo_valid ? _next_free_cluster : 2;
 
-    for (uint32_t pass = 0; pass < 2; pass++) {
+    for (int pass = 0; pass < 2; pass++) {
 
         for (uint32_t c = start; c < _total_clusters; c++) {
             uint32_t val;
@@ -202,11 +202,6 @@ int FileSys::fat_allocate(uint32_t *out)
                 return -1;
 
             if (val == 0) {
-                if (fat_set(c, EOC))
-                    return -1;
-
-                *out = c;
-
                 if (_fsinfo_valid) {
                     if (_free_cluster_count != 0xffffffff)
                         --_free_cluster_count;
@@ -215,6 +210,10 @@ int FileSys::fat_allocate(uint32_t *out)
                     _fsinfo_dirty = true;
                 }
 
+                if (fat_set(c, EOC))
+                    return -1;
+
+                *out = c;
                 return success();
             }
         }
@@ -236,9 +235,6 @@ int FileSys::fat_free_chain(uint32_t start)
         if (fat_get(cluster, &next))
             return -1;
 
-        if (fat_set(cluster, 0))
-            return -1;
-
         if (_fsinfo_valid) {
             if (_free_cluster_count != 0xffffffff)
                 ++_free_cluster_count;
@@ -248,6 +244,9 @@ int FileSys::fat_free_chain(uint32_t start)
 
             _fsinfo_dirty = true;
         }
+
+        if (fat_set(cluster, 0))
+            return -1;
 
         cluster = next;
     }
@@ -274,7 +273,7 @@ int FileSys::fat_recompute_free_clusters(uint32_t* free_count, uint32_t* next_fr
         }
     }
 
-    *free_count = free;
+    *free_count = free + 2;
     *next_free = first ? first : 2;
 
     return success();
@@ -374,8 +373,7 @@ int FileSys::mount()
 
             _free_cluster_count = fsi->free_count;
             _next_free_cluster =
-                (fsi->next_free >= 2 &&
-                 fsi->next_free < _total_clusters)
+                (fsi->next_free >= 2 && fsi->next_free < _total_clusters)
                 ? fsi->next_free
                 : 2;
 
@@ -463,7 +461,7 @@ int FileSys::sync()
 }
 
 
-void FileSys::build_83_name(const uint8_t *entry, char *out)
+void FileSys::format_sfn(const uint8_t *entry, char *out)
 {
     char name[9] = {0};
     char ext[4]  = {0};
@@ -653,8 +651,7 @@ int FileSys::dir_find_free_slot(uint32_t dir_cluster,
             const uint32_t new_lba = cluster_to_lba(next);
             for (uint32_t s = 0; s < _sectors_per_cluster; s++) {
                 ::memset(_sector, 0, sizeof _sector);
-                _sec_lba = new_lba + s;
-                if (store_sector(new_lba+s))
+                if (store_sector(new_lba + s))
                     return -1;
             }
         }
@@ -1346,8 +1343,7 @@ int FileSys::rmdir(const char *path)
     if (dir_is_empty(f._first_cluster) != 1)
         return with_error(Error::DIR_NOT_EMPTY);
 
-    /* Free cluster */
-    if (fat_set(f._first_cluster, 0))
+    if (fat_free_chain(f._first_cluster))
         return -1;
 
     /* Mark directory entry deleted */
@@ -1408,28 +1404,46 @@ int FileSys::fsck(bool fix, fsck_report_t* report)
     report->directories = 1;        // root is implicit
     (void)fsck_scan_directory(&ctx, _root_cluster, fix, report);
 
+    uint32_t first_free_cluster = 0;
+
     /* Detect lost clusters */
     for (uint32_t c = 2; c < _total_clusters; c++) {
         uint32_t val;
-        if (!fat_get(c, &val)) {
+        if (fat_get(c, &val) == 0) {
             if (val != 0 && ctx.cluster_refcount[c] == 0) {
                 ++report->lost_clusters;
 #ifdef FAT32_FSCK_REPAIR
                 if (fix) {
                     fat_set(c, 0);
                     ++report->repairs;
+                    val = 0;
                 }
 #endif
             }
 
-            if (val == 0)
-                report->free_clusters++;
-            else
-                report->referenced_clusters++;
+            if (val == 0) {
+                ++report->free_clusters;
+                if (first_free_cluster == 0)
+                    first_free_cluster = c;
+            } else
+                ++report->referenced_clusters;
         } // else log something? add to report?
     }
 
     free(ctx.cluster_refcount);
+
+    report->free_clusters += 2; // Because we skipped two
+#if 0
+    if (_fsinfo.valid && report->free_clusters != _free_cluster_count) {
+        _free_cluster_count = report->free_cluster;
+        _fsinfo_dirty = 1;
+    }
+
+    if (_fsinfo,valid && first_free_cluster < _next_free_cluster) {
+        _next_free_cluster = first_free_cluster;
+        _fsinfo_dirty = 1;
+    }
+#endif
 
 #ifdef FAT32_FSCK_REPAIR
     if (fix)
@@ -1812,7 +1826,7 @@ int FileSys::DIR::readdir(entry_t *out)
 
                 ::memset(out, 0, sizeof(*out));
 
-                _fs->build_83_name(entry->name, out->name);
+                _fs->format_sfn(entry->name, out->name);
 
                 out->attr = attr;
 

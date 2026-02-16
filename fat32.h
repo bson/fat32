@@ -92,6 +92,7 @@ namespace Fat32 {
         uint32_t     _root_cluster;
         uint32_t     _total_clusters;
 
+        // FSINFO
         uint32_t     _fsinfo_lba;
         uint32_t     _free_cluster_count;
         uint32_t     _next_free_cluster;
@@ -314,7 +315,7 @@ namespace Fat32 {
         int dir_is_empty(uint32_t cluster);
 
         int make_sfn(const char *name, uint8_t out[11]);
-        void build_83_name(const uint8_t *entry, char *out);
+        void format_sfn(const uint8_t *entry, char *out);
 
         int success() { _last_error = Error::SUCCESS; return 0; } // Good return
         int with_error(Error err) {                               // Error return
