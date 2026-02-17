@@ -59,6 +59,14 @@ CacheBlockDev::CacheEntry* CacheBlockDev::cache_lookup(uint32_t lba)
 }
 
 
+void CacheBlockDev::cache_invalidate(uint32_t lba)
+{
+    CacheEntry* e = cache_lookup(lba);
+    if (e)
+        e->valid = false;
+}
+
+
 CacheBlockDev::CacheEntry* CacheBlockDev::cache_evict()
 {
     CacheEntry* victim = _lru_tail;
@@ -68,10 +76,10 @@ CacheBlockDev::CacheEntry* CacheBlockDev::cache_evict()
     if (victim->dirty) {
         if (_bdev.write_blocks(victim->lba, 1, victim->data))
             return NULL;
-        victim->dirty = 0;
+        victim->dirty = false;
     }
 
-    victim->valid = 0;
+    victim->valid = false;
 
     return victim;
 }
@@ -92,6 +100,17 @@ int CacheBlockDev::read_blocks(uint32_t lba, uint32_t count, void *buffer, bool 
 {
     uint8_t *out = (uint8_t*)buffer;
 
+    if (bypass) {
+        for (uint32_t blk = lba; blk < lba + count; blk++)
+            cache_invalidate(blk);
+
+        if (_bdev.read_blocks(lba, count, out, true))
+            return -1;
+
+        return 0;
+    }
+
+    // Don't include bypass I/O in cache stats
     _nreads += count;
 
     for (uint32_t i = 0; i < count; i++) {
@@ -100,23 +119,16 @@ int CacheBlockDev::read_blocks(uint32_t lba, uint32_t count, void *buffer, bool 
         CacheEntry *e = cache_lookup(cur);
 
         if (!e) {
-            if (bypass) {
-                if (_bdev.read_blocks(cur, 1, out, bypass))
-                    return -1;
-                out += SECTOR_SIZE;
-                continue;
-            } else {
-                e = cache_alloc_entry();
-                if (!e)
-                    return -1;
+            e = cache_alloc_entry();
+            if (!e)
+                return -1;
 
-                if (_bdev.read_blocks(cur, 1, e->data) != 0)
-                    return -1;
+            if (_bdev.read_blocks(cur, 1, e->data) != 0)
+                return -1;
 
-                e->lba = cur;
-                e->valid = 1;
-                e->dirty = 0;
-            }
+            e->lba = cur;
+            e->valid = 1;
+            e->dirty = 0;
         } else {
             ++_nread_hits;
         }
@@ -135,6 +147,17 @@ int CacheBlockDev::write_blocks(uint32_t lba, uint32_t count, const void *buffer
 {
     const uint8_t *in = (const uint8_t*)buffer;
 
+    if (bypass) {
+        for (uint32_t blk = lba; blk < lba + count; blk++)
+            cache_invalidate(blk);
+
+        if (_bdev.write_blocks(lba, count, in, true))
+            return -1;
+
+        return 0;
+    }
+
+    // Don't include bypass I/O in cache stats
     _nwrites += count;
 
     for (uint32_t i = 0; i < count; i++) {
@@ -155,17 +178,17 @@ int CacheBlockDev::write_blocks(uint32_t lba, uint32_t count, const void *buffer
             ++_nwrite_hits;
         }
 
-        if (!bypass)
-            ::memcpy(e->data, in, SECTOR_SIZE);
+        ::memcpy(e->data, in, SECTOR_SIZE);
+        e->dirty = true;
 
-        if (_write_through || bypass) {
-            if (_bdev.write_blocks(cur, 1, bypass ? in : e->data))
+        if (_write_through) {
+            if (_bdev.write_blocks(cur, 1, e->data))
                 return -1;
-        } else
-            e->dirty = 1;
 
-        if (!bypass)
-            lru_move_to_front(e);
+            e->dirty = false;
+        }
+
+        lru_move_to_front(e);
 
         in += SECTOR_SIZE;
     }

@@ -798,7 +798,7 @@ static int generate_pattern(uint8_t *buf,
 
 void test_large_write_read(Fat32::FileSys* fs)
 {
-    printf("TEST: large write-read\n");
+    printf("TEST: large write-read (without cache bypass)\n");
 
     Fat32::FileSys::File f;
     assert(fs->create(PATTERN_TEST_FILE, &f) == 0);
@@ -842,7 +842,7 @@ void test_large_write_read(Fat32::FileSys* fs)
 
 void test_large_write_read_bypass(Fat32::FileSys* fs)
 {
-    printf("TEST: large write-read (cache bypass)\n");
+    printf("TEST: large write-read (cache bypass for data)\n");
 
     Fat32::FileSys::File f;
     assert(fs->create(PATTERN_TEST_FILE2, &f) == 0);
@@ -944,8 +944,8 @@ int main(void)
     test_truncate_grow(&fs);
     test_truncate_zero(&fs);
     test_readdir(&fs);
-    test_large_write_read(&fs);
     test_large_write_read_bypass(&fs);
+    test_large_write_read(&fs);
     test_psinfo_write(&fs);
 
     printf("All tests completed.\n");

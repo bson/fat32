@@ -87,6 +87,7 @@ public:
 private:
     void lru_move_to_front(CacheEntry *e);
     CacheEntry* cache_lookup(uint32_t lba);
+    void cache_invalidate(uint32_t lba);
     CacheEntry* cache_evict();
     CacheEntry *cache_alloc_entry();
 

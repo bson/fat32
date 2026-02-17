@@ -776,13 +776,28 @@ int FileSys::File::read(void *buffer, size_t len, bool bypass)
         const uint32_t lba = _fs->cluster_to_lba(cluster)
             + (cluster_offset / _fs->_bytes_per_sector);
 
-        uint8_t* sector;
-        if (_fs->load_sector(lba, &sector, bypass))
-            return -1;
+        uint32_t to_copy;
 
-        const uint32_t sector_offset = cluster_offset % _fs->_bytes_per_sector;
-        const uint32_t to_copy = min(_fs->_bytes_per_sector - sector_offset, remaining);
-        ::memcpy(out, sector + sector_offset, to_copy);
+        // In bypass, read up to a full cluster
+        if (bypass && remaining >= _fs->_bytes_per_sector && cluster_offset == 0) {
+            const uint32_t nsectors =
+                min((remaining / _fs->_bytes_per_sector), _fs->_sectors_per_cluster);
+
+            if (_fs->_bdev.read_blocks(lba, nsectors, out, true))
+                return _fs->with_error(Error::BDEV_READ_ERR);
+
+            to_copy = nsectors * _fs->_bytes_per_sector;
+        } else {
+            uint8_t* sector;
+            if (_fs->load_sector(lba, &sector, bypass))
+                return -1;
+
+            const uint32_t sector_offset = cluster_offset % _fs->_bytes_per_sector;
+            
+            to_copy = min(_fs->_bytes_per_sector - sector_offset, remaining);
+
+            ::memcpy(out, sector + sector_offset, to_copy);
+        }
 
         out += to_copy;
         remaining -= to_copy;
@@ -832,18 +847,32 @@ int FileSys::File::write(const void *buffer, size_t len, bool bypass)
         const uint32_t lba = _fs->cluster_to_lba(cluster)
             + (cluster_offset / _fs->_bytes_per_sector);
 
-        uint8_t* sector;
-        if (_fs->load_sector(lba, &sector))
-            return -1;
+        uint32_t to_copy;
 
-        const uint32_t sector_offset = cluster_offset % _fs->_bytes_per_sector;
-        const uint32_t to_copy = min(_fs->_bytes_per_sector - sector_offset, remaining);
+        // In bypass, write up to a full cluster
+        if (bypass && remaining >= _fs->_bytes_per_sector && cluster_offset == 0) {
+            const uint32_t nsectors =
+                min((remaining / _fs->_bytes_per_sector), _fs->_sectors_per_cluster);
 
-        ::memcpy(sector + sector_offset, in, to_copy);
+            if (_fs->_bdev.write_blocks(lba, nsectors, in, true))
+                return _fs->with_error(Error::BDEV_WRITE_ERR);
 
-        /* DATA FIRST */
-        if (_fs->store_sector(lba, bypass))
-            return -1;
+            to_copy = nsectors * _fs->_bytes_per_sector;
+        } else {
+            const uint32_t sector_offset = cluster_offset % _fs->_bytes_per_sector;
+
+            to_copy = min(_fs->_bytes_per_sector - sector_offset, remaining);
+
+            uint8_t* sector;
+            if (_fs->load_sector(lba, &sector))
+                return -1;
+
+            ::memcpy(sector + sector_offset, in, to_copy);
+
+            /* DATA FIRST */
+            if (_fs->store_sector(lba, bypass))
+                return -1;
+        }
 
         in += to_copy;
         remaining -= to_copy;
