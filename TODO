@@ -1,4 +1,9 @@
-Use shifts and masks for sector and cluster sizes.
+Consider adding 8-bit ASCII compatible LFNs, using '=' or some other
+replacement char for anything unprintable.  This could have a simple
+interface that explicitly adds an LFN for an SFN, removes an LFN for
+an SFN, renames an SFN's LFN, or looks up the SFN for an LFN.  This
+way systems can omit the LFN support pretty easily as they're entirely
+separate.
 
 Refactor test_fat32 a bit so it can be built for firmware (with a
 suitable block device, like an SD or CF card and driver) and run on a
@@ -10,9 +15,3 @@ fill the entire cluster.  Add a fill() method to BlockDev for this.
 The data structures used all have a little-endian dependency. Is this
 even worth the bother these days?  Maybe look into it if it becomes an
 issue, as at that point there will be a BE system to test it on.
-
-Consider adding 8-bit ASCII compatible LFNs and simply use '=' for
-anything unprintable.  This could have a simply interface that
-explicitly adds an LFN for an SFN, removes an LFN for an SFN, renames
-an SFN's LFN, or looks up the SFN for an LFN.  This way systems can
-omit the LFN support pretty easily as they're entirely separate.
