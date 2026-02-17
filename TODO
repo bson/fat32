@@ -1,10 +1,3 @@
 Refactor test_fat32 a bit so it can be built for firmware (with a
 suitable block device, like an SD or CF card and driver) and run on a
 target platform.
-
-Investigate cluster loading; when loading a sector ask the cache to
-fill the entire cluster.  Add a fill() method to BlockDev for this.
-
-The data structures used all have a little-endian dependency. Is this
-even worth the bother these days?  Maybe look into it if it becomes an
-issue, as at that point there will be a BE system to test it on.

@@ -21,7 +21,7 @@
 
 class BlockDev {
 public:
-    // Initialize, if needed
+    // Initialize this and underlying
     virtual int init() = 0;
 
     virtual int read_blocks(uint32_t lba,
