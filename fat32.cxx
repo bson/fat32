@@ -99,6 +99,16 @@ const char* FileSys::strerror(Error err) const
 }
 
 
+uint8_t FileSys::factor_to_shift(uint16_t factor)
+{
+    uint8_t n = 0;
+    while (factor != 1) {
+        ++n;
+        factor >>= 1;
+    }
+    return n;
+}
+
 int FileSys::load_sector(uint32_t lba, uint8_t** sector, bool bypass)
 {
     if (lba == _sec_lba) {
@@ -127,15 +137,15 @@ int FileSys::store_sector(uint32_t lba, bool bypass)
 
 uint32_t FileSys::cluster_to_lba(uint32_t cluster)
 {
-    return _data_start_lba + ((cluster - 2) * _sectors_per_cluster);
+    return _data_start_lba + clusters_to_sectors(cluster - 2);
 }
 
 
 int FileSys::fat_get(uint32_t cluster, uint32_t *val)
 {
     uint32_t off = cluster * 4;
-    uint32_t lba = _fat_start_lba + (off / _bytes_per_sector);
-    uint32_t pos = off % _bytes_per_sector;
+    uint32_t lba = _fat_start_lba + bytes_to_sectors(off);
+    uint32_t pos = off & _bytes_per_sector_mask;
 
     uint8_t* sector;
     if (load_sector(lba, &sector))
@@ -153,8 +163,8 @@ int FileSys::fat_set_single(uint32_t cluster,
     const uint32_t off = cluster * 4;
     const uint32_t base = _fat_start_lba + fat_index * _fat_size_sectors;
 
-    const uint32_t lba = base + (off / _bytes_per_sector);
-    const uint32_t pos = off % _bytes_per_sector;
+    const uint32_t lba = base + bytes_to_sectors(off);
+    const uint32_t pos = off & _bytes_per_sector_mask;
 
     uint8_t* sector;
     if (load_sector(lba, &sector))
@@ -341,6 +351,12 @@ int FileSys::mount()
     _root_cluster        = bpb->root_cluster;
     _ext_flags           = bpb->ext_flags;
 
+    _bytes_per_sector_shift    = factor_to_shift(_bytes_per_sector);
+    _sectors_per_cluster_shift = factor_to_shift(_sectors_per_cluster);
+
+    _bytes_per_sector_mask     = _bytes_per_sector-1;
+    _sectors_per_cluster_mask  = _sectors_per_cluster-1;
+
     if (_bytes_per_sector > MAX_SECTOR_SIZE)
         return with_error(Error::UNSUPPORTED_SECTOR_SIZE);
 
@@ -358,7 +374,7 @@ int FileSys::mount()
     const uint32_t data_sectors = total_sectors
         - (_reserved_sectors + _fat_count * _fat_size_sectors);
 
-    _total_clusters = data_sectors / _sectors_per_cluster;
+    _total_clusters = sectors_to_clusters(data_sectors);
 
     if (cluster_to_lba(_total_clusters) > _bdev.size())
         return with_error(Error::FS_EXCEEDS_BDEV);
@@ -670,8 +686,7 @@ int FileSys::cluster_for_offset(uint32_t first_cluster,
                                 uint32_t *out_cluster,
                                 uint32_t *cluster_index) 
 {
-    uint32_t cluster_size = _sectors_per_cluster * _bytes_per_sector;
-    uint32_t index = offset / cluster_size;
+    const uint32_t index = bytes_to_clusters(offset);
     uint32_t cluster = first_cluster;
 
     for (uint32_t i = 0; i < index; i++) {
@@ -732,7 +747,7 @@ int FileSys::open(const char *path, FileSys::File *file)
 
 uint32_t FileSys::cluster_size()
 {
-    return _bytes_per_sector * _sectors_per_cluster;
+    return clusters_to_bytes(1);
 }
 
 
@@ -763,8 +778,6 @@ int FileSys::File::read(void *buffer, size_t len, bool bypass)
     uint32_t remaining = len;
     uint32_t total_read = 0;
 
-    const uint32_t cluster_size = _fs->_sectors_per_cluster * _fs->_bytes_per_sector;
-
     while (remaining > 0) {
         uint32_t cluster;
         uint32_t cluster_index;
@@ -772,27 +785,26 @@ int FileSys::File::read(void *buffer, size_t len, bool bypass)
         if (_fs->cluster_for_offset(_first_cluster, _file_pos, &cluster, &cluster_index))
             return -1;
 
-        const uint32_t cluster_offset = _file_pos % cluster_size;
-        const uint32_t lba = _fs->cluster_to_lba(cluster)
-            + (cluster_offset / _fs->_bytes_per_sector);
+        const uint32_t cluster_offset = _file_pos & (_fs->cluster_size() - 1);
+        const uint32_t lba = _fs->cluster_to_lba(cluster) + _fs->bytes_to_sectors(cluster_offset);
 
         uint32_t to_copy;
 
         // In bypass, read up to a full cluster
         if (bypass && remaining >= _fs->_bytes_per_sector && cluster_offset == 0) {
             const uint32_t nsectors =
-                min((remaining / _fs->_bytes_per_sector), _fs->_sectors_per_cluster);
+                min(_fs->bytes_to_sectors(remaining), _fs->_sectors_per_cluster);
 
             if (_fs->_bdev.read_blocks(lba, nsectors, out, true))
                 return _fs->with_error(Error::BDEV_READ_ERR);
 
-            to_copy = nsectors * _fs->_bytes_per_sector;
+            to_copy = _fs->sectors_to_bytes(nsectors);
         } else {
             uint8_t* sector;
             if (_fs->load_sector(lba, &sector, bypass))
                 return -1;
 
-            const uint32_t sector_offset = cluster_offset % _fs->_bytes_per_sector;
+            const uint32_t sector_offset = cluster_offset & _fs->_bytes_per_sector_mask;
             
             to_copy = min(_fs->_bytes_per_sector - sector_offset, remaining);
 
@@ -834,32 +846,29 @@ int FileSys::File::write(const void *buffer, size_t len, bool bypass)
     uint32_t remaining = len;
     uint32_t total_written = 0;
 
-    const uint32_t cluster_size = _fs->_sectors_per_cluster * _fs->_bytes_per_sector;
-
     while (remaining > 0) {
-        const uint32_t needed_index = _file_pos / cluster_size;
+        const uint32_t needed_index = _fs->bytes_to_clusters(_file_pos);
 
         uint32_t cluster;
         if (ensure_cluster_index(needed_index, &cluster))
             return -1;
 
-        const uint32_t cluster_offset = _file_pos % cluster_size;
-        const uint32_t lba = _fs->cluster_to_lba(cluster)
-            + (cluster_offset / _fs->_bytes_per_sector);
+        const uint32_t cluster_offset = _file_pos & (_fs->cluster_size() - 1);
+        const uint32_t lba = _fs->cluster_to_lba(cluster) + _fs->bytes_to_sectors(cluster_offset);
 
         uint32_t to_copy;
 
         // In bypass, write up to a full cluster
         if (bypass && remaining >= _fs->_bytes_per_sector && cluster_offset == 0) {
             const uint32_t nsectors =
-                min((remaining / _fs->_bytes_per_sector), _fs->_sectors_per_cluster);
+                min(_fs->bytes_to_sectors(remaining), _fs->_sectors_per_cluster);
 
             if (_fs->_bdev.write_blocks(lba, nsectors, in, true))
                 return _fs->with_error(Error::BDEV_WRITE_ERR);
 
-            to_copy = nsectors * _fs->_bytes_per_sector;
+            to_copy = _fs->sectors_to_bytes(nsectors);
         } else {
-            const uint32_t sector_offset = cluster_offset % _fs->_bytes_per_sector;
+            const uint32_t sector_offset = cluster_offset & _fs->_bytes_per_sector_mask;
 
             to_copy = min(_fs->_bytes_per_sector - sector_offset, remaining);
 
@@ -940,8 +949,6 @@ int FileSys::File::truncate(uint32_t new_size)
     Exclusive excl_(_lock);
     Exclusive excl2_(_fs->_lock);
 
-    const uint32_t cl_size = _fs->cluster_size();
-
     /* No-op */
     if (new_size == _file_size)
         return _fs->success();
@@ -954,7 +961,7 @@ int FileSys::File::truncate(uint32_t new_size)
 
             _first_cluster = 0;
         } else {
-            const uint32_t last_cluster_index = (new_size - 1) / cl_size;
+            const uint32_t last_cluster_index =  _fs->bytes_to_clusters(new_size - 1);
             uint32_t last_cluster;
             if (_fs->fat_cluster_at(_first_cluster, last_cluster_index, &last_cluster))
                 return -1;
@@ -983,7 +990,7 @@ int FileSys::File::truncate(uint32_t new_size)
 
     /* ---------------- GROW ---------------- */
 
-    const uint32_t needed_clusters = (new_size + cl_size - 1) / cl_size;
+    const uint32_t needed_clusters = _fs->bytes_to_clusters(new_size + _fs->cluster_size() - 1);
 
     uint32_t current_clusters = 0;
 
@@ -1696,8 +1703,7 @@ int FileSys::fsck_scan_directory(fsck_ctx_t *ctx,
                         if (fsck_chain_length(start_cluster, &chain_len))
                             return -1;
 
-                        const uint32_t cluster_bytes =
-                            chain_len * _sectors_per_cluster * _bytes_per_sector;
+                        const uint32_t cluster_bytes = clusters_to_bytes(chain_len);
 
                         if (load_sector(lba+s, &sector))
                             return -1;

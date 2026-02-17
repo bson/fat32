@@ -106,6 +106,12 @@ namespace Fat32 {
 
         Error        _last_error;
 
+        uint8_t     _bytes_per_sector_shift;
+        uint8_t     _sectors_per_cluster_shift;
+
+        uint32_t    _bytes_per_sector_mask;
+        uint32_t    _sectors_per_cluster_mask;
+
         FileSys() = delete;
         FileSys(FileSys&) = delete;
 
@@ -298,6 +304,28 @@ namespace Fat32 {
         int store_sector(uint32_t lba, bool bypass = false);
 
     private:
+        
+        // Basic shift-based geometry calculations
+        uint32_t bytes_to_sectors(uint32_t bytes) const {
+            return bytes >> _bytes_per_sector_shift;
+        }
+        uint32_t sectors_to_bytes(uint32_t sectors) const {
+            return sectors << _bytes_per_sector_shift;
+        }
+        uint32_t sectors_to_clusters(uint32_t sectors) const {
+            return sectors >> _sectors_per_cluster_shift;
+        }
+        uint32_t clusters_to_sectors(uint32_t clusters) const {
+            return clusters << _sectors_per_cluster_shift;
+        }
+        uint32_t bytes_to_clusters(uint32_t bytes) const {
+            return bytes >> (_sectors_per_cluster_shift + _bytes_per_sector_shift);
+        }
+        uint32_t clusters_to_bytes(uint32_t clusters) const {
+            return clusters << (_sectors_per_cluster_shift + _bytes_per_sector_shift);
+        }
+
+        static uint8_t factor_to_shift(uint16_t factor);
         uint32_t cluster_size();
         uint32_t cluster_to_lba(uint32_t cluster);
         int fat_get(uint32_t cluster, uint32_t *val);
