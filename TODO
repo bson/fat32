@@ -1,10 +1,3 @@
-Consider adding 8-bit ASCII compatible LFNs, using '=' or some other
-replacement char for anything unprintable.  This could have a simple
-interface that explicitly adds an LFN for an SFN, removes an LFN for
-an SFN, renames an SFN's LFN, or looks up the SFN for an LFN.  This
-way systems can omit the LFN support pretty easily as they're entirely
-separate.
-
 Refactor test_fat32 a bit so it can be built for firmware (with a
 suitable block device, like an SD or CF card and driver) and run on a
 target platform.

@@ -14,7 +14,7 @@ CXXFLAGS=-fno-exceptions -fno-rtti -fno-unwind-tables -ffunction-sections \
 
 LDFLAGS=-Wl,--gc-sections
 
-SRCS=fat32.cxx cache.cxx gptmap.cxx test_fat32.cxx
+SRCS=fat32.cxx cache.cxx gptmap.cxx test_fat32.cxx sdcard.cxx
 OBJS=$(patsubst %.cxx, %.o, $(SRCS))
 DEPS=$(patsubst %.cxx, %.d, $(SRCS))
 
