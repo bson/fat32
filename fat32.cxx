@@ -863,11 +863,14 @@ int FileSys::File::write(const void *buffer, size_t len, bool bypass)
 
             to_copy = min(_fs->_bytes_per_sector - sector_offset, remaining);
 
-            uint8_t* sector;
-            if (_fs->load_sector(lba, &sector))
-                return -1;
+            if (sector_offset != 0 || to_copy < _fs->_bytes_per_sector) {
+                uint8_t* sector;
+                if (_fs->load_sector(lba, &sector, bypass))
+                    return -1;
 
-            ::memcpy(sector + sector_offset, in, to_copy);
+                ::memcpy(sector + sector_offset, in, to_copy);
+            } else
+                ::memcpy(_fs->_sector, in, to_copy);
 
             /* DATA FIRST */
             if (_fs->store_sector(lba, bypass))
