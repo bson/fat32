@@ -54,6 +54,11 @@ changing constants in headers.
 
 There is no read-only mount capability.
 
+I relies on the target being little-endian.  Sorry, it's not worth
+effort and I don't have a BE system to test it on anyway.  If done,
+use C++ and add uint32tle_t etc and implement explicit operators to
+enforce swaps to/from other types.
+
 
 ## Structure
 
