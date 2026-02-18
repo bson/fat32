@@ -30,6 +30,9 @@ sense.  If only one thread performs file I/O the no-op is fine.  (Or
 if there is effectively only one thread such as many projects with
 no context switching or scheduling at all.)
 
+You probably want to Linux (or some other GNU and POSIX platform) to
+work on this, so you can run the test, use the Makefile, etc.
+
 
 ## Caveats
 
@@ -61,9 +64,16 @@ FAT32 operates on a BlockDev which is passed into the constructor.
 
 BlockDevs are stacked, and what this filesystem uses for storage.
 
-* `CacheBlockDev` - an LRU sector cache that can sit underneath the filesystem or the partition mapper
-* `GPTMap` - a GPT partition mapper that translates block numbers from a partition to the underlying storage.  It knows of a few basic partition GUID types and will probe for FAT32.
-* `SDCard` - an SD card implementation of BlockDev that can be used to read/write
+* `CacheBlockDev` - an LRU sector cache that can sit underneath the
+filesystem or the partition mapper
+
+* `GPTMap` - a GPT partition mapper that translates block numbers from
+a partition to the underlying storage.  It knows of a few basic
+partition GUID types and will probe for FAT32.
+
+* `SDCard` - an SD card implementation of BlockDev that can be used to
+read/write
+
 * `PosixBlockDev` - used by the tests to access a GPT disk image
 
 Layers can be included as needed.  The cache can be omitted, as can
@@ -73,8 +83,20 @@ only the boot block (aka BIOS parameter block).
 
 ### SDIO
 
-This implements a physical 4-bit SDIO interface.  stm32_sdio.{h,cxx} conatains a token
-skeleton, using ST's HAL.  It won't compile and is just for illustration.
+This implements a physical 4-bit SDIO interface.  stm32_sdio.{h,cxx}
+conatains a token skeleton, using ST's HAL.  It won't compile and is
+just for illustration.
+
+A future enhancement here for the SDCard BlockDev is error resilience
+and timeouts (with reset and reinit) to recover from errors.  Retry on
+CRC errors.  This requires some additions to the SDIO interface.
+There are also some places where the skeleton will wait indefinitely;
+this is makes it a bit of a toy.
+
+The dummy SDIO outline code will spin waits and polled transfers.  In
+many actual real-world scenarios it should use interrupts, scheduling
+primitives to wake the blocked thread, and DMA transfers.  However,
+the dummy is a good first "blinking LED" kind of starting point.
 
 
 ## Repair
@@ -150,3 +172,31 @@ tests found tons of bugs, which were fixed.  I think the main
 usefulness of ChatGPT here was to just generate a code outline and
 structure - this is a huge timesaves.  Cleaning it up and adding
 missing functionality was relatively simple.
+
+When relying on AI, the following needs to be kept in mind:
+
+* It's often not correct.  It's important to read and understand the
+code it generates.
+
+* Shortcomings may not be obvious.  These were numerous like this, for
+example, the summary PSINFO wasn't properly tracked (free cluster
+count, next free cluster) or written.
+
+* The code generates is very repetitive. In this project for exampe a
+lot of the file tree walking and directory iteration could be
+generalized, say with C++ lambdas.  This is probably not worth the
+effort for this project though, but it's something to keep in mind.
+
+* Depending on where its associations come from, things change between
+prompts.  Function names, parameter order, and parameters.  This
+obviously reflects that it's using different source material.  This
+needs cleaning up.
+
+* I worked incrementally, asking to add things as I went along.  It
+tried to make suggestions for imprements - some of those were good and
+things I hadn't thought off, others out of scope.  Such as
+defragmentation for it to become production-grade.
+
+* It often has no notion of things that are good engineering practice,
+like meaningful error codes, if none of its sources included this.
+You might have to add it yourself.
