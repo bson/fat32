@@ -39,6 +39,13 @@ work on this, so you can run the test, use the Makefile, etc.
 Only mount each filesystem once.  Multiple mounts will produce
 corruption.
 
+`fsck()` uses calloc in its directory tree walk. Otherwise there is no
+reliance on a dynamic memory allocator.  If you don't have this on
+your target system you can't include checking or repair. To make it
+compile you can add a dummy implementation that halts or panics; if
+checking is never called the linker will remove the code and your
+dummy catch. (`-ffunction-sections` and `-Wl,--gc-sections`).
+
 File paths use the Linux/Darwin-style '/' and are always relative to
 the root of the file system.  There is no notion of a working
 directory, so there is no distinction between absolute and relative
