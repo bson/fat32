@@ -817,8 +817,10 @@ int FileSys::File::read(void *buffer, size_t len, bool bypass)
         _file_pos = min(_file_pos + to_copy, _file_size);
     }
 
+#ifdef FAT32_DATE_AND_TIME
     uint16_t t;
     fat32_now(&_last_access_date, &t);
+#endif
 
     (void)_fs->success();
     return total_read;
