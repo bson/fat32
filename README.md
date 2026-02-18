@@ -205,3 +205,14 @@ defragmentation for it to become production-grade.
 * It often has no notion of things that are good engineering practice,
 like meaningful error codes, if none of its sources included this.
 You might have to add it yourself.
+
+* The provenance of the code output seems iffy to me.  It so clearly
+just copied other people's work and a little googling quickly led me
+to `dosfstools` on github.  Be aware it may or may not be considered
+original work, vs derivative, and there may be serious licensing
+issues!
+
+TL;DR: it won't do it for you, you still need to know what you're
+doing and be able to read and understand some else's code.  You still
+need to understand the problem domain and what it needs to do.  Make
+sure to investigate the rights and provenance of what it spits out.
