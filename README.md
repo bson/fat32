@@ -1,33 +1,152 @@
 # A simple FAT32 implementation
 Simple FAT32 implementation with a static footprint, suitable for firmware.
 
-This came out of an experiment to see how useful ChatGPT would be for code generation. I mostly fixed lots of bugs
-in its code, added proper error codes and handling, and turned it into C++.  I didn't want it to generate some mess
-metaprogramming so I had it output C and converted it; the C++ is mainly for namespace hygiene and conciseness.
-ChatGPT generated the tests, calling it a verification suite, but to my eyes it's more of a smoke test.  But it
-offers at least some confidence it will actually work.  I build, run, and debug the tests on Linux using just plain
-old gdb from emacs.
+## About this
 
-Footprint is about 10k all told, plus about 4.5k of data, most of which is a very simple sector cache with LRU
-eviction semantics and optional write-through (which I intend to use).
+The total footprint is about 10k all told, plus about 5-6k of data,
+most of which is a very simple sector cache with LRU eviction
+semantics.  The cache can be made write-through or read-write; in the
+former case all writes are made to the underlying storage immediately.
 
-If compiling with `-ffunction-sections` and `-fdata-sections`, then if linking with `-Wl,--gc-sections` the linker
-will omit all unused functions, so if you don't use truncate() for example you don't have to include the code for it.
+If compiling with `-ffunction-sections` and `-fdata-sections`, then if
+linking with `-Wl,--gc-sections` the linker will omit all unused
+functions, so if you don't use truncate() for example you don't have
+to include the code for it.
 
-It only supports 8.3 short filenames (SFN).  While LFN mechanics aren't complicated, UTF is beyond the scope of a small library with a static footprint.  If nothing else they will need significant pure-section data tables and support functionality.  As a result, when files are created or renamed no LFNs will be created and old LFNs will remain.  They're simply ignored.  This is a significant caveat!
+Only short file names are used; it completely ignores LFN directory
+entries.  Adding LFN support, even as a separate layer would
+substantially increase the data footprint, because adding an LFN for
+an SFN requires inserting multiple directory entries prior to the SFN,
+which realistically requires holding at least two full clusters in
+memory. LFNs are ignored as I don't see any embedded device looking
+for a small-footprint implementation to really have any use for it.  A
+lot of common consumer devices, like cameras, already don't support
+them.
 
-There is currently no locking and it's not MT-safe.
+A single recursive perimenter lock is used.  There is one for POSIX
+platforms, to run the test, and another which is a no-op.  For any
+other target platform it should be reimplemented in whatever way makes
+sense.  If only one thread performs file I/O the no-op is fine.  (Or
+if there is effectively only one thread such as many projects with
+no context switching or scheduling at all.)
 
-Each volume should only be mounted in a single file system.
 
-File paths use the Linux/Darwin-style '/'.
+## Caveats
 
-The read-only and hidden attribute bits are advisory only and not enforced in any way.  They can be found either by `stat()` or by `File::attributes()` after `open()`.
+Only mount each filesystem once.  Multiple mounts will produce
+corruption.
 
-It really only is assumed to work with 512-byte sectored storage devices. It's possible other sizes might work, but you're on your own.  The default setting of MAX_SECTOR_SIZE in fat32.h will have it refuse to mount anything else.  The sector size is part of the formatting, and it's exceedingly unlikely this will ever be used with hardware that can't use 512-byte sectors.  Still, some SD cards have soft sector sizes...
+File paths use the Linux/Darwin-style '/' and are always relative to
+the root of the file system.  There is no notion of a working
+directory, so there is no distinction between absolute and relative
+paths.  In fact, any leading '/' is simply ignored.
+
+The read-only and hidden attribute bits are advisory only and not
+enforced in any way.  They can be found either by `stat()` or by
+`File::attributes()` after `open()`.
+
+It's assumed all storage devices use 512-byte sectoring. It's possible
+other sizes might work, but you're on your own and changing it requires
+changing constants in headers.
+
+There is no read-only mount capability.
+
+
+## Structure
+
+FAT32 operates on a BlockDev which is passed into the constructor.
+
+
+### BlockDev
+
+BlockDevs are stacked, and what this filesystem uses for storage.
+
+* `CacheBlockDev` - an LRU sector cache that can sit underneath the filesystem or the partition mapper
+* `GPTMap` - a GPT partition mapper that translates block numbers from a partition to the underlying storage.  It knows of a few basic partition GUID types and will probe for FAT32.
+* `SDCard` - an SD card implementation of BlockDev that can be used to read/write
+* `PosixBlockDev` - used by the tests to access a GPT disk image
+
+Layers can be included as needed.  The cache can be omitted, as can
+the GPT mapper, for raw access to a card with a file system on it with
+only the boot block (aka BIOS parameter block).
+
+
+### SDIO
+
+This implements a physical 4-bit SDIO interface.  stm32_sdio.{h,cxx} conatains a token
+skeleton, using ST's HAL.  It won't compile and is just for illustration.
+
+
+## Repair
+
+There is a `fsck()` method in `Fat32::FileSys` to check and repair.
+The check is reasonably complete, but the repair is elementary and
+doesn't handle many problems well, or at all.  Most notably it won't
+repair filenames, directory links (especially . and ..), or use
+majority voting to reconcile FAT consistencies (when there are 3 or
+more FATs).  Repair functionality is under an `#ifdef` (see below)
+since it's not easily split out into separate functions that can
+simply be omitted.
+
+## Build options
 
 There are a few build options:
- * `-DFAT32_STRICT_MOUNT=1` - makes `mount()` perform integrity checks as its last mount step.  If these fail it returns -1 and sets the last error to `FS_NEEDS_REPAIR`.  It's still mounted and usable, and can be repaired.  The reason for this to be a build option is that it adds a dependency on the rather sizeable `fsck()` and increases mount times.
- * `-DFAT32_FSCK_REPAIR=1` - `fsck()` has an argument to fix problems (repair).  Unless this #defined the `fix` argument ignored and `fsck()` will be built to only check.  This shrinks the footprint and is useful if the target system is never intended to perform repairs but just refuse to use a dirty FS.
- * `-DFAT32_DATE_AND_TIME=1` - adds date and time management.  Needs a global function `void fat32_now(uint16_t* fat_date, uint16_t* fat_time)` that returns the current date and time in FAT format.  This is system specific.  test_fat32 has a POSIX implementation.  FAT uses the local system time, not UTC. This is a build option since many small systems don't have reliable date and time functions, and having to provide one for no benefit, plus a little additional overhead, for no benefit, is pointless.  Without this the fields will be zero, which means midnight Jan 1, 1980.  For file creation time, the tenths part is always set to zero; write times have only seconds and access date is only a date.
- 
+
+* `-DFAT32_STRICT_MOUNT=1` - makes `mount()` perform integrity checks
+  as its last mount step.  If these fail it returns -1 and sets the
+  last error to `FS_NEEDS_REPAIR`.  It's still mounted and usable, and
+  can be repaired.  The reason for this to be a build option is that
+  it adds a dependency on the rather sizeable `fsck()` and increases
+  mount times.
+
+* `-DFAT32_FSCK_REPAIR=1` - `fsck()` has an argument to fix problems
+  (repair).  Unless this #defined the `fix` argument ignored and
+  `fsck()` will be built to only check.  This shrinks the footprint
+  and is useful if the target system is never intended to perform
+  repairs but just refuse to use a dirty FS.
+
+* `-DFAT32_DATE_AND_TIME=1` - adds date and time management.  Needs a
+  global function `void fat32_now(uint16_t* fat_date, uint16_t*
+  fat_time)` that returns the current date and time in FAT format.
+  This is system specific.  test_fat32 has a POSIX implementation.
+  FAT uses the local system time, not UTC. This is a build option
+  since many small systems don't have reliable date and time
+  functions, and having to provide one for no benefit, plus a little
+  additional overhead, for no benefit, is pointless.  Without this the
+  fields will be zero, which means midnight Jan 1, 1980.  For file
+  creation time, the tenths part is always set to zero; write times
+  have only seconds and access date is only a date.
+
+
+## How this project came about
+
+This came out of an experiment to see how useful ChatGPT would be for
+code generation.  I think it borrowed naming and structure from
+existing open source projects, mainly `dosfstools`.  Since those are
+GPL I'll use the same licensing for this repo.
+
+I needed a FAT32 filesystem with these properties, and since I didn't
+really have anything to start with and wanted to create it from
+scratch, it made a good test case to see how AI coding could help, or
+if it could help at all.  It's not useful for the actual code, but I
+found it helpful to quickly generate structure and outlines; probably
+because people have solved these problems before.  I chode ChatGPT
+because I could use it for free, so made a good test case; other tools
+might work differently.  The code quality was very poor, but not
+entirely wrong and pretty easily cleaned up.  Some bugs were terrible,
+but not that hard to fix under gdb.  The ability to quickly generate
+some basic tests was very useful here.
+
+As alluded to above, a large number of bugs were fixed in the output,
+some functionality added, complicated constructs simplified, and
+memory footprint reduced.  Proper error codes and handling was added,
+and it was turned it into C++.  I explicitly didn't want C++ with
+exceptions and tons of memory allocations, or generics that create
+code duplication.  ChatGPT generated the tests, calling it a
+verification suite, but to my eyes it's more of a smoke test.  But it
+offers at least some confidence it will actually work.  I build, run,
+and debug the tests on Linux using just plain old gdb from emacs.  The
+tests found tons of bugs, which were fixed.  I think the main
+usefulness of ChatGPT here was to just generate a code outline and
+structure - this is a huge timesaves.  Cleaning it up and adding
+missing functionality was relatively simple.
