@@ -36,8 +36,9 @@ work on this, so you can run the test, use the Makefile, etc.
 
 ## Caveats
 
-Only mount each filesystem once.  Multiple mounts will produce
-corruption.
+Only mount each filesystem once.  Multiple concurrent mounts will
+produce corruption. It can be remounted, just `sync()` and mount it
+again.  There is no explicit unmount.
 
 `fsck()` uses calloc in its directory tree walk. Otherwise there is no
 reliance on a dynamic memory allocator.  If you don't have this on
