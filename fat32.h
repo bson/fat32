@@ -110,7 +110,6 @@ namespace Fat32 {
         uint8_t     _sectors_per_cluster_shift;
 
         uint32_t    _bytes_per_sector_mask;
-        uint32_t    _sectors_per_cluster_mask;
 
         FileSys() = delete;
         FileSys(FileSys&) = delete;
@@ -294,9 +293,6 @@ namespace Fat32 {
 
 
     protected:
-        friend class Fat32;
-        friend class DIR;
-
         // Load sector, if needed
         int load_sector(uint32_t lba, uint8_t** sector, bool bypass = false);
 
@@ -326,6 +322,13 @@ namespace Fat32 {
         }
 
         static uint8_t factor_to_shift(uint16_t factor);
+
+        // Index of the FAT copy to treat as authoritative when mirroring
+        // is disabled (0 otherwise, since all copies are then kept in sync).
+        uint32_t primary_fat_index() const {
+            return (_ext_flags & MIRROR_DISABLED) ? _ext_flags & ACTIVE_FAT_MASK : 0;
+        }
+
         uint32_t cluster_size();
         uint32_t cluster_to_lba(uint32_t cluster);
         int fat_get(uint32_t cluster, uint32_t *val);
@@ -345,6 +348,10 @@ namespace Fat32 {
                                uint32_t *out_offset);
         int dir_find_parent(char* path_buffer, bool tail, uint32_t* cluster);
         int dir_is_empty(uint32_t cluster);
+
+        // Strip a leading '/' and copy into _tmp for in-place path wrangling
+        // (e.g. by dir_find_parent). Returns _tmp.
+        char* prep_tmp_path(const char* path);
 
         int make_sfn(const char *name, uint8_t out[11]);
         void format_sfn(const uint8_t *entry, char *out);

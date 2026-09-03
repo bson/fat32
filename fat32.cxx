@@ -89,6 +89,11 @@ static_assert((sizeof error_strings / sizeof error_strings[0]) == NUM_ERRORS,
 static constexpr uint8_t dot[12] = ".          ";
 static constexpr uint8_t dotdot[12] = "..         ";
 
+static inline bool is_dot_or_dotdot(const uint8_t* name)
+{
+    return !::memcmp(name, dot, 11) || !::memcmp(name, dotdot, 11);
+}
+
     
 const char* FileSys::strerror(Error err) const
 {
@@ -182,13 +187,11 @@ int FileSys::fat_set_single(uint32_t cluster,
 
 int FileSys::fat_set(uint32_t cluster, uint32_t val)
 {
-    const int mirror_disabled = _ext_flags & MIRROR_DISABLED;
-
     uint32_t start_fat = 0;
     uint32_t end_fat   = _fat_count;
 
-    if (mirror_disabled) {
-        start_fat = _ext_flags & ACTIVE_FAT_MASK;
+    if (_ext_flags & MIRROR_DISABLED) {
+        start_fat = primary_fat_index();
         end_fat   = start_fat + 1;
     }
 
@@ -355,7 +358,6 @@ int FileSys::mount()
     _sectors_per_cluster_shift = factor_to_shift(_sectors_per_cluster);
 
     _bytes_per_sector_mask     = _bytes_per_sector-1;
-    _sectors_per_cluster_mask  = _sectors_per_cluster-1;
 
     if (_bytes_per_sector > MAX_SECTOR_SIZE)
         return with_error(Error::UNSUPPORTED_SECTOR_SIZE);
@@ -728,17 +730,23 @@ int FileSys::File::update_dirent()
 }
 
 
+char* FileSys::prep_tmp_path(const char* path)
+{
+    const char* p = *path == '/' ? path + 1 : path;
+
+    ::strncpy(_tmp, p, sizeof _tmp);
+    _tmp[sizeof(_tmp) - 1] = 0;
+    return _tmp;
+}
+
+
 int FileSys::open(const char *path, FileSys::File *file)
 {
     Exclusive excl_(_lock);
 
     uint32_t dir_cluster;
 
-    const char* p = *path == '/' ? path + 1 : path;
-
-    ::strncpy(_tmp, p, sizeof _tmp);
-    _tmp[255] = 0;
-    if (dir_find_parent(_tmp, true, &dir_cluster))
+    if (dir_find_parent(prep_tmp_path(path), true, &dir_cluster))
         return -1;
 
     return dir_find(dir_cluster, basename(path), file);
@@ -897,11 +905,6 @@ int FileSys::File::write(const void *buffer, size_t len, bool bypass)
             _file_size = _file_pos;
     }
 
-#if 0 // Update on close or sync
-    /* After data + FAT updates, update size */
-    if (update_dirent())
-        return -1;
-#endif
     (void)_fs->success();
     return total_written;
 }
@@ -909,14 +912,7 @@ int FileSys::File::write(const void *buffer, size_t len, bool bypass)
 
 int FileSys::File::ensure_cluster_index(uint32_t needed_index, uint32_t *out_cluster)
 {
-    if (_first_cluster == 0) {
-        if (_fs->fat_allocate(&_first_cluster))
-            return -1;
-
-        if (update_dirent())
-            return -1;
-    }
-
+    // Caller (write()) guarantees _first_cluster is already allocated.
     uint32_t cluster = _first_cluster;
     uint32_t index = 0;
 
@@ -1129,11 +1125,8 @@ int FileSys::create(const char *path, FileSys::File *file)
     if (open(path, &f) == 0)
         return with_error(Error::ALREADY_EXISTS);
 
-    const char* p = *path == '/' ? path + 1 : path;
-    ::strncpy(_tmp, p, sizeof _tmp);
-    _tmp[255] = 0;
     uint32_t dir_cluster;
-    if (dir_find_parent(_tmp, true, &dir_cluster))
+    if (dir_find_parent(prep_tmp_path(path), true, &dir_cluster))
         return -1;
 
     uint32_t lba;
@@ -1200,11 +1193,8 @@ int FileSys::rename(const char *from_path, const char* to_path)
         return with_error(Error::ALREADY_EXISTS);
 
     /* Extract parent directory cluster of new_path */
-    const char* tp = *to_path == '/' ? to_path + 1 : to_path;
-    ::strncpy(_tmp, tp, sizeof _tmp);
-    _tmp[255] = 0;
     uint32_t to_dir_cluster;
-    if (dir_find_parent(_tmp, true, &to_dir_cluster))
+    if (dir_find_parent(prep_tmp_path(to_path), true, &to_dir_cluster))
         return -1;
 
     uint8_t* sector;
@@ -1259,7 +1249,7 @@ int FileSys::dir_is_empty(uint32_t cluster)
 
                 /* Skip "." and ".." */
                 if ((ent[i].attr & DirentAttr::DIRECTORY) &&
-                    (!::memcmp(ent[i].name, dot, 11)|| !::memcmp(ent[i].name, dotdot, 11)))
+                    is_dot_or_dotdot(ent[i].name))
                     continue;
 
                 return success(); /* 0 - not empty */
@@ -1285,12 +1275,8 @@ int FileSys::mkdir(const char *path)
     if (open(path, &f) == 0)
         return with_error(Error::ALREADY_EXISTS);
 
-    const char* p = *path == '/' ? path + 1 : path;
-    ::strncpy(_tmp, p, sizeof _tmp);
-    _tmp[255] = 0;
-
     uint32_t parent_cluster;
-    if (dir_find_parent(_tmp, true, &parent_cluster))
+    if (dir_find_parent(prep_tmp_path(path), true, &parent_cluster))
         return -1;
 
     uint32_t parent_lba;
@@ -1449,8 +1435,6 @@ int FileSys::fsck(bool fix, fsck_report_t* report)
     report->directories = 1;        // root is implicit
     (void)fsck_scan_directory(&ctx, _root_cluster, fix, report);
 
-    uint32_t first_free_cluster = 0;
-
     /* Detect lost clusters */
     for (uint32_t c = 2; c < _total_clusters; c++) {
         uint32_t val;
@@ -1466,11 +1450,9 @@ int FileSys::fsck(bool fix, fsck_report_t* report)
 #endif
             }
 
-            if (val == 0) {
+            if (val == 0)
                 ++report->free_clusters;
-                if (first_free_cluster == 0)
-                    first_free_cluster = c;
-            } else
+            else
                 ++report->referenced_clusters;
         } // else log something? add to report?
     }
@@ -1478,17 +1460,6 @@ int FileSys::fsck(bool fix, fsck_report_t* report)
     free(ctx.cluster_refcount);
 
     report->free_clusters += 2; // Because we skipped two
-#if 0
-    if (_fsinfo.valid && report->free_clusters != _free_cluster_count) {
-        _free_cluster_count = report->free_cluster;
-        _fsinfo_dirty = 1;
-    }
-
-    if (_fsinfo,valid && first_free_cluster < _next_free_cluster) {
-        _next_free_cluster = first_free_cluster;
-        _fsinfo_dirty = 1;
-    }
-#endif
 
 #ifdef FAT32_FSCK_REPAIR
     if (fix)
@@ -1551,10 +1522,7 @@ void FileSys::fsck_verify_mirrors(FileSys::fsck_ctx_t *ctx,
     if (_fat_count < 2)
         return;
 
-    uint32_t primary = 0;
-
-    if (_ext_flags & MIRROR_DISABLED)
-        primary = _ext_flags & ACTIVE_FAT_MASK;
+    const uint32_t primary = primary_fat_index();
 
     for (uint32_t i = 0; i < _fat_count; i++) {
         if (i == primary)
@@ -1633,7 +1601,7 @@ int FileSys::fsck_scan_directory(fsck_ctx_t *ctx,
                     continue;
 
                 /* Skip "." and ".." */
-                if (!::memcmp(entry->name, dot, 11) || !::memcmp(entry->name, dotdot, 11))
+                if (is_dot_or_dotdot(entry->name))
                     continue;
 
                 /* Extract cluster */
@@ -1865,7 +1833,7 @@ int FileSys::DIR::readdir(entry_t *out)
                     continue;
 
                 /* Skip "." and ".." */
-                if (!::memcmp(entry->name, dot, 11) || !::memcmp(entry->name, dotdot, 11))
+                if (is_dot_or_dotdot(entry->name))
                     continue;
 
                 ::memset(out, 0, sizeof(*out));

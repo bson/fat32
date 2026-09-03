@@ -103,33 +103,6 @@ static uint32_t crc32(const void *data, size_t len)
 }
 
 
-static void utf16le_to_utf8(char *out,
-                            const uint16_t *in,
-                            size_t max_chars)
-{
-    size_t o = 0;
-
-    for (size_t i = 0; i < max_chars; i++) {
-        const uint16_t c = in[i];
-        if (c == 0)
-            break;
-
-        if (c < 0x80) {
-            out[o++] = c;
-        } else if (c < 0x800) {
-            out[o++] = 0xc0 | (c >> 6);
-            out[o++] = 0x80 | (c & 0x3f);
-        } else {
-            out[o++] = 0xe0 | (c >> 12);
-            out[o++] = 0x80 | ((c >> 6) & 0x3f);
-            out[o++] = 0x80 | (c & 0x3f);
-        }
-    }
-
-    out[o] = 0;
-}
-
-
 static int utf16le_to_ascii(char *out,
                             size_t out_size,
                             const uint16_t *in,
